@@ -401,12 +401,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           <input class="config-input wide" type="text" id="cfgNombre" value="Convocatoria 1"/>
         </div>
         <div class="config-row">
-          <div class="config-label">Fecha y hora de inicio</div>
+          <div class="config-label">Fecha y hora de inicio <span style="font-size:11px;color:var(--muted)">(opcional — vacío = acceso inmediato)</span></div>
           <input class="config-input wide" type="datetime-local" id="cfgFechaInicio"/>
-        </div>
-        <div class="config-row">
-          <div class="config-label">Fecha y hora de fin</div>
-          <input class="config-input wide" type="datetime-local" id="cfgFechaFin"/>
         </div>
         <div class="config-row">
           <div class="config-label">Número de preguntas</div>
@@ -623,14 +619,9 @@ async function doLogin(){
 
     const ahora = new Date();
     const ahoraStr = ahora.getFullYear()+'-'+pad2(ahora.getMonth()+1)+'-'+pad2(ahora.getDate())+'T'+pad2(ahora.getHours())+':'+pad2(ahora.getMinutes());
+    // fecha_inicio se guarda como "YYYY-MM-DDTHH:MM:00" (hora local, sin UTC)
     const fechaInicioStr = cfg.fecha_inicio ? cfg.fecha_inicio.slice(0,16) : null;
-    const fechaFinStr = cfg.fecha_fin ? cfg.fecha_fin.slice(0,16) : null;
 
-    // Examen cerrado
-    if(fechaFinStr && ahoraStr > fechaFinStr){
-      setWaiting('🔒','Examen cerrado','El tiempo para rendir este examen ha finalizado.',cfg.convocatoria_nombre||'',false);
-      btn.disabled=false; btn.textContent='Ingresar →'; return;
-    }
     // Aún no comienza
     if(fechaInicioStr && ahoraStr < fechaInicioStr){
       setWaiting('📅','¡Hola, '+appState.student.nombre+'!','Tu examen comenzará en:',cfg.convocatoria_nombre||'',true);
@@ -874,7 +865,6 @@ async function loadAdminConfig(){
     document.getElementById('cfgTiempo').value = cfg.tiempo_minutos;
     document.getElementById('cfgNombre').value = cfg.convocatoria_nombre || '';
     if(cfg.fecha_inicio) document.getElementById('cfgFechaInicio').value = cfg.fecha_inicio.slice(0,16);
-    if(cfg.fecha_fin) document.getElementById('cfgFechaFin').value = cfg.fecha_fin.slice(0,16);
     cfgState.activa = !!cfg.convocatoria_activa;
     cfgState.recup = !!cfg.permite_recuperacion;
     updateToggle('activa'); updateToggle('recup');
