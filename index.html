@@ -439,15 +439,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="config-row">
           <div class="config-label">Convocatoria activa</div>
           <div class="toggle-wrap">
-            <button class="toggle" id="toggleActiva" onclick="toggleConfig('activa')"></button>
-            <span class="toggle-label" id="labelActiva">Cerrada</span>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+              <input type="checkbox" id="toggleActiva" onchange="cfgState.activa=this.checked;document.getElementById('labelActiva').textContent=this.checked?'Abierta':'Cerrada';" style="width:40px;height:22px;cursor:pointer;accent-color:var(--primary);">
+              <span class="toggle-label" id="labelActiva">Cerrada</span>
+            </label>
           </div>
         </div>
         <div class="config-row">
           <div class="config-label">Permitir recuperación</div>
           <div class="toggle-wrap">
-            <button class="toggle" id="toggleRecup" onclick="toggleConfig('recup')"></button>
-            <span class="toggle-label" id="labelRecup">No</span>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+              <input type="checkbox" id="toggleRecup" onchange="cfgState.recup=this.checked;document.getElementById('labelRecup').textContent=this.checked?'Sí':'No';" style="width:40px;height:22px;cursor:pointer;accent-color:var(--primary);">
+              <span class="toggle-label" id="labelRecup">No</span>
+            </label>
           </div>
         </div>
         <button class="btn-primary" onclick="saveConfig()" style="margin-top:8px;">Guardar configuración</button>
@@ -845,10 +849,17 @@ async function loadAdminConfig(){
 }
 function updateToggle(key){
   const val=cfgState[key];
-  if(key==='activa'){ document.getElementById('toggleActiva').className='toggle'+(val?' on':''); document.getElementById('labelActiva').textContent=val?'Abierta':'Cerrada'; }
-  if(key==='recup'){ document.getElementById('toggleRecup').className='toggle'+(val?' on':''); document.getElementById('labelRecup').textContent=val?'Sí':'No'; }
+  if(key==='activa'){ 
+    const el=document.getElementById('toggleActiva');
+    if(el) el.checked=val;
+    document.getElementById('labelActiva').textContent=val?'Abierta':'Cerrada'; 
+  }
+  if(key==='recup'){ 
+    const el=document.getElementById('toggleRecup');
+    if(el) el.checked=val;
+    document.getElementById('labelRecup').textContent=val?'Sí':'No'; 
+  }
 }
-function toggleConfig(key){ cfgState[key]=!cfgState[key]; updateToggle(key); }
 async function saveConfig(){
   try {
     const fi=document.getElementById('cfgFechaInicio').value;
