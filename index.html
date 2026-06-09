@@ -387,7 +387,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="admin-wrap">
     <div class="admin-tabs">
       <button class="admin-tab active" onclick="adminTab('resultados')">📊 Resultados</button>
-      <button class="admin-tab" onclick="adminTab('config')">⚙️ Configuración</button>
+      <button class="admin-tab" onclick="adminTab('convocar')">📲 Convocar</button>
+      <button class="admin-tab" onclick="adminTab('config')">⚙️ Config</button>
     </div>
 
     <!-- RESULTADOS -->
@@ -395,6 +396,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="config-card">
         <div class="config-title">Resultados de Exámenes</div>
         <div id="resultadosBody"><div class="empty-state"><span class="spinner"></span> Cargando...</div></div>
+      </div>
+    </div>
+
+    <!-- CONVOCAR -->
+    <div class="admin-section" id="atab-convocar">
+      <div class="config-card">
+        <div class="config-title">📲 Convocar Estudiantes</div>
+        <div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button class="btn-primary" style="font-size:12px;padding:8px 14px;" onclick="selAllConvocar(true)">Seleccionar todas</button>
+          <button class="btn-secondary" style="font-size:12px;" onclick="selAllConvocar(false)">Deseleccionar</button>
+          <button onclick="copiarMensajeGrupal()" style="background:#25D366;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;">💬 Copiar mensaje grupal</button>
+        </div>
+        <div id="convocarBody"><div class="empty-state"><span class="spinner"></span> Cargando...</div></div>
       </div>
     </div>
 
@@ -714,9 +728,81 @@ function adminTab(tab){
   document.getElementById('atab-'+tab).classList.add('active');
   if(tab==='config') loadAdminConfig();
   if(tab==='resultados') loadResultados();
+  if(tab==='convocar') loadConvocar();
 }
 
-let countdownTimer = null;
+// ══ CONVOCAR ══
+let convocarStudents = [];
+let convocarSelected = new Set();
+
+async function loadConvocar(){
+  const body = document.getElementById('convocarBody');
+  body.innerHTML = '<div class="empty-state"><span class="spinner"></span> Cargando...</div>';
+  try {
+    const data = await supaFetch(`students?select=id,nombre,telefono,email,estado&estado=in.(egresada,graduada)&order=nombre`);
+    convocarStudents = data || [];
+    convocarSelected = new Set(convocarStudents.map(s=>s.id));
+    renderConvocar();
+  } catch(e) { body.innerHTML = '<div class="empty-state">Error cargando estudiantes.</div>'; }
+}
+
+function renderConvocar(){
+  const body = document.getElementById('convocarBody');
+  if(!convocarStudents.length){ body.innerHTML='<div class="empty-state">No hay egresadas registradas.</div>'; return; }
+  const cfg = appState.config || {};
+  let html = '';
+  convocarStudents.forEach(s => {
+    const sel = convocarSelected.has(s.id);
+    const tieneTel = s.telefono && s.telefono.length >= 9;
+    const tieneEmail = s.email && s.email.includes('@');
+    const wa = tieneTel ? '+593' + s.telefono.replace(/^0/,'').replace(/\D/g,'') : null;
+    const msg = encodeURIComponent(
+      `Hola ${s.nombre.split(' ')[0]} 💅\n\nTu examen teórico está disponible.\n\n` +
+      `📧 Ingresa con tu correo: ${s.email || '(no registrado)'}\n` +
+      `🔗 Link: https://seycare-examen.onrender.com\n\n` +
+      `📋 ${cfg.convocatoria_nombre || 'Convocatoria'}\n` +
+      (cfg.fecha_inicio ? `⏰ Inicio: ${new Date(cfg.fecha_inicio).toLocaleString('es-EC')}` : '') +
+      `\n\n¡Mucho éxito! 🌟`
+    );
+    html += `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);">
+      <input type="checkbox" ${sel?'checked':''} onchange="toggleConvocar('${s.id}',this.checked)" style="width:18px;height:18px;cursor:pointer;accent-color:var(--primary);">
+      <div style="flex:1;">
+        <div style="font-size:14px;font-weight:700;">${s.nombre}</div>
+        <div style="font-size:11px;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;">
+          ${tieneEmail ? `<span style="color:var(--primary);">✉ ${s.email}</span>` : `<span style="color:var(--danger);">✉ Sin email</span>`}
+          ${tieneTel ? `<span style="color:#64748b;">📱 ${s.telefono}</span>` : `<span style="color:var(--danger);">📱 Sin teléfono</span>`}
+        </div>
+      </div>
+      ${tieneTel ? `<a href="https://wa.me/${wa}?text=${msg}" target="_blank" style="background:#25D366;color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap;">💬 WA</a>` : `<span style="font-size:11px;color:var(--muted);background:var(--card2);border-radius:8px;padding:6px 10px;">Sin tel.</span>`}
+    </div>`;
+  });
+  body.innerHTML = html;
+}
+
+function toggleConvocar(id, checked){
+  if(checked) convocarSelected.add(id); else convocarSelected.delete(id);
+}
+function selAllConvocar(val){
+  if(val) convocarStudents.forEach(s=>convocarSelected.add(s.id));
+  else convocarSelected.clear();
+  renderConvocar();
+}
+
+function copiarMensajeGrupal(){
+  const cfg = appState.config || {};
+  const selList = convocarStudents.filter(s=>convocarSelected.has(s.id));
+  if(!selList.length){ showToast('Selecciona al menos una estudiante','error'); return; }
+  const nombres = selList.map(s=>s.nombre.split(' ')[0]).join(', ');
+  const msg = `Hola ${nombres} 💅\n\nSu examen teórico está disponible.\n\n` +
+    `🔗 Link: https://seycare-examen.onrender.com\n` +
+    `📧 Ingresen con su correo registrado\n\n` +
+    `📋 ${cfg.convocatoria_nombre || 'Convocatoria'}\n` +
+    (cfg.fecha_inicio ? `⏰ Inicio: ${new Date(cfg.fecha_inicio).toLocaleString('es-EC')}\n` : '') +
+    `\n¡Mucho éxito a todas! 🌟`;
+  navigator.clipboard.writeText(msg).then(()=>showToast('Mensaje copiado ✓')).catch(()=>showToast('Error al copiar','error'));
+}
+
+
 function startCountdown(fechaInicio){
   clearInterval(countdownTimer);
   function update(){
