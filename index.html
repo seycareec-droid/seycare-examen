@@ -240,16 +240,36 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
-<!-- ═══ PANTALLA: SIN CONVOCATORIA ═══ -->
+<!-- ═══ PANTALLA: CUENTA REGRESIVA ═══ -->
 <div class="screen" id="s-waiting">
   <div class="header">
     <div class="header-logo">💅</div>
     <div><div class="header-title">Seycare Academy</div></div>
   </div>
   <div class="waiting-wrap">
-    <div class="waiting-icon">⏳</div>
-    <div class="waiting-title">No hay examen activo</div>
-    <div class="waiting-desc">En este momento no hay una convocatoria de examen abierta. Tu instructora te avisará cuando esté disponible.</div>
+    <div class="waiting-icon" id="waitingIcon">⏳</div>
+    <div class="waiting-title" id="waitingTitle">Examen próximo</div>
+    <div class="waiting-desc" id="waitingDesc">Tu examen comenzará en:</div>
+    <div id="countdownBox" style="display:none;margin:20px auto;">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:360px;margin:0 auto;">
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;text-align:center;">
+          <div style="font-size:32px;font-weight:900;color:var(--primary)" id="cdDias">00</div>
+          <div style="font-size:11px;color:var(--muted)">días</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;text-align:center;">
+          <div style="font-size:32px;font-weight:900;color:var(--primary)" id="cdHoras">00</div>
+          <div style="font-size:11px;color:var(--muted)">horas</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;text-align:center;">
+          <div style="font-size:32px;font-weight:900;color:var(--primary)" id="cdMin">00</div>
+          <div style="font-size:11px;color:var(--muted)">min</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;text-align:center;">
+          <div style="font-size:32px;font-weight:900;color:var(--primary)" id="cdSeg">00</div>
+          <div style="font-size:11px;color:var(--muted)">seg</div>
+        </div>
+      </div>
+    </div>
     <div class="waiting-badge" id="waitingName">Convocatoria próxima</div>
     <br/>
     <button class="btn-secondary" onclick="showScreen('s-login')">← Salir</button>
@@ -383,6 +403,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="config-card">
         <div class="config-title">⚙️ Configuración del Examen</div>
         <div class="config-row">
+          <div class="config-label">Fecha y hora de inicio</div>
+          <input class="config-input" type="datetime-local" id="cfgFechaInicio" style="width:200px;"/>
+        </div>
+        <div class="config-row">
+          <div class="config-label">Fecha y hora de fin</div>
+          <input class="config-input" type="datetime-local" id="cfgFechaFin" style="width:200px;"/>
+        </div>
+        <div class="config-row">
           <div class="config-label">Número de preguntas</div>
           <input class="config-input" type="number" id="cfgPreguntas" min="5" max="80" value="20"/>
         </div>
@@ -468,7 +496,36 @@ async function doLogin(){
     const cfgs = await supaFetch('examen_config?id=eq.1&select=*');
     const cfg = cfgs&&cfgs[0]?cfgs[0]:{num_preguntas:20,tiempo_minutos:60,convocatoria_activa:false,convocatoria_nombre:'Convocatoria 1',permite_recuperacion:false};
     appState.config = cfg;
-    if(!cfg.convocatoria_activa){ document.getElementById('waitingName').textContent=cfg.convocatoria_nombre||'Próxima convocatoria'; showScreen('s-waiting'); btn.disabled=false; btn.textContent='Ingresar →'; return; }
+    if(!cfg.convocatoria_activa){
+      document.getElementById('waitingIcon').textContent='⏳';
+      document.getElementById('waitingTitle').textContent='No hay examen activo';
+      document.getElementById('waitingDesc').textContent='Tu instructora te avisará cuando haya una convocatoria disponible.';
+      document.getElementById('countdownBox').style.display='none';
+      document.getElementById('waitingName').textContent=cfg.convocatoria_nombre||'Próxima convocatoria';
+      showScreen('s-waiting'); btn.disabled=false; btn.textContent='Ingresar →'; return;
+    }
+    // Verificar fecha/hora
+    const ahora = new Date();
+    const fechaInicio = cfg.fecha_inicio ? new Date(cfg.fecha_inicio) : null;
+    const fechaFin = cfg.fecha_fin ? new Date(cfg.fecha_fin) : null;
+    if(fechaFin && ahora > fechaFin){
+      document.getElementById('waitingIcon').textContent='🔒';
+      document.getElementById('waitingTitle').textContent='Examen cerrado';
+      document.getElementById('waitingDesc').textContent='El tiempo para rendir este examen ha finalizado.';
+      document.getElementById('countdownBox').style.display='none';
+      document.getElementById('waitingName').textContent=cfg.convocatoria_nombre||'';
+      showScreen('s-waiting'); btn.disabled=false; btn.textContent='Ingresar →'; return;
+    }
+    if(fechaInicio && ahora < fechaInicio){
+      document.getElementById('waitingIcon').textContent='📅';
+      document.getElementById('waitingTitle').textContent='¡Hola, '+student.nombre+'!';
+      document.getElementById('waitingDesc').textContent='Tu examen comenzará en:';
+      document.getElementById('countdownBox').style.display='block';
+      document.getElementById('waitingName').textContent=cfg.convocatoria_nombre||'';
+      showScreen('s-waiting');
+      startCountdown(fechaInicio);
+      btn.disabled=false; btn.textContent='Ingresar →'; return;
+    }
     // Verificar si ya rindió
     const prevExams = await supaFetch(`examenes?select=id,nota,estado&estudiante_id=eq.${student.id}&convocatoria=eq.${encodeURIComponent(cfg.convocatoria_nombre)}&order=created_at.desc&limit=1`);
     if(prevExams&&prevExams.length>0&&!cfg.permite_recuperacion){ const nota=(prevExams[0].nota*10/10).toFixed(2); document.getElementById('yaRindioNota').textContent='Tu nota: '+nota+' / 10'; showScreen('s-ya-rindio'); btn.disabled=false; btn.textContent='Ingresar →'; return; }
@@ -659,7 +716,32 @@ function adminTab(tab){
   if(tab==='resultados') loadResultados();
 }
 
-let cfgState={activa:false,recup:false};
+let countdownTimer = null;
+function startCountdown(fechaInicio){
+  clearInterval(countdownTimer);
+  function update(){
+    const ahora = new Date();
+    const diff = fechaInicio - ahora;
+    if(diff <= 0){
+      clearInterval(countdownTimer);
+      // Es hora — mostrar info del examen
+      showScreen('s-info');
+      return;
+    }
+    const dias = Math.floor(diff/86400000);
+    const horas = Math.floor((diff%86400000)/3600000);
+    const min = Math.floor((diff%3600000)/60000);
+    const seg = Math.floor((diff%60000)/1000);
+    document.getElementById('cdDias').textContent=String(dias).padStart(2,'0');
+    document.getElementById('cdHoras').textContent=String(horas).padStart(2,'0');
+    document.getElementById('cdMin').textContent=String(min).padStart(2,'0');
+    document.getElementById('cdSeg').textContent=String(seg).padStart(2,'0');
+  }
+  update();
+  countdownTimer = setInterval(update, 1000);
+}
+
+
 async function loadAdminConfig(){
   try {
     const cfgs=await supaFetch('examen_config?id=eq.1&select=*');
@@ -667,6 +749,8 @@ async function loadAdminConfig(){
     document.getElementById('cfgPreguntas').value=cfg.num_preguntas;
     document.getElementById('cfgTiempo').value=cfg.tiempo_minutos;
     document.getElementById('cfgNombre').value=cfg.convocatoria_nombre||'';
+    if(cfg.fecha_inicio){ document.getElementById('cfgFechaInicio').value=cfg.fecha_inicio.slice(0,16); }
+    if(cfg.fecha_fin){ document.getElementById('cfgFechaFin').value=cfg.fecha_fin.slice(0,16); }
     cfgState.activa=cfg.convocatoria_activa;
     cfgState.recup=cfg.permite_recuperacion;
     updateToggle('activa');
@@ -681,12 +765,16 @@ function updateToggle(key){
 function toggleConfig(key){ cfgState[key]=!cfgState[key]; updateToggle(key); }
 async function saveConfig(){
   try {
+    const fi=document.getElementById('cfgFechaInicio').value;
+    const ff=document.getElementById('cfgFechaFin').value;
     await supaFetch('examen_config?id=eq.1','PATCH',{
       num_preguntas:parseInt(document.getElementById('cfgPreguntas').value)||20,
       tiempo_minutos:parseInt(document.getElementById('cfgTiempo').value)||60,
       convocatoria_nombre:document.getElementById('cfgNombre').value.trim()||'Convocatoria 1',
       convocatoria_activa:cfgState.activa,
-      permite_recuperacion:cfgState.recup
+      permite_recuperacion:cfgState.recup,
+      fecha_inicio:fi?new Date(fi).toISOString():null,
+      fecha_fin:ff?new Date(ff).toISOString():null
     });
     appState.config=await supaFetch('examen_config?id=eq.1&select=*').then(r=>r[0]);
     showToast('Configuración guardada ✓');
