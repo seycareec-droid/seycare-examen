@@ -853,7 +853,8 @@ async function saveConfig(){
   try {
     const fi=document.getElementById('cfgFechaInicio').value;
     const ff=document.getElementById('cfgFechaFin').value;
-    await supaFetch('examen_config?id=eq.1','PATCH',{
+    const newCfg={
+      id:1,
       num_preguntas:parseInt(document.getElementById('cfgPreguntas').value)||20,
       tiempo_minutos:parseInt(document.getElementById('cfgTiempo').value)||60,
       convocatoria_nombre:document.getElementById('cfgNombre').value.trim()||'Convocatoria 1',
@@ -861,10 +862,12 @@ async function saveConfig(){
       permite_recuperacion:cfgState.recup,
       fecha_inicio:fi?new Date(fi).toISOString():null,
       fecha_fin:ff?new Date(ff).toISOString():null
-    });
-    appState.config=await supaFetch('examen_config?id=eq.1&select=*').then(r=>r[0]);
+    };
+    await supaFetch('examen_config?id=eq.1','DELETE');
+    await supaFetch('examen_config','POST',newCfg);
+    appState.config=newCfg;
     showToast('Configuración guardada ✓');
-  } catch(e){ showToast('Error guardando config','error'); }
+  } catch(e){ showToast('Error guardando config','error'); console.error(e); }
 }
 
 async function loadResultados(){
