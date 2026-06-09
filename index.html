@@ -197,14 +197,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="login-card">
       <div class="login-logo">📝</div>
       <div class="login-title">Acceso al Examen</div>
-      <div class="login-sub">Ingresa tu nombre completo tal como está registrado</div>
+      <div class="login-sub">Ingresa tu email registrado en la academia</div>
       <div class="field-group">
-        <div class="field-label">Nombre completo</div>
-        <input class="field-input" type="text" id="loginEmail" placeholder="Ej: María García López" autocomplete="name"/>
+        <div class="field-label">Email</div>
+        <input class="field-input" type="email" id="loginEmail" placeholder="tu@email.com" autocomplete="email"/>
       </div>
       <button class="btn-primary" id="btnLogin" onclick="doLogin()">Ingresar →</button>
       <div class="login-error" id="loginError"></div>
-      <div class="login-info">Ingresa tu nombre exactamente como aparece en tu registro de la academia.</div>
+      <div class="login-info">Solo estudiantes registradas en Seycare Academy pueden acceder.</div>
     </div>
     <div style="text-align:center;margin-top:20px;">
       <button class="btn-secondary" onclick="showAdminLogin()">Acceso administrador</button>
@@ -444,7 +444,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <script>
 const SUPA_URL = 'https://yaxdcfrvcmkrwunpkpyj.supabase.co';
-const SUPA_KEY = 'sb_publishable_PIpW57mTJY6cxE2PHGLS9w_uPyFMESf';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlheGRjZnJ2Y21rcnd1bnBrcHlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1Mjk2MDEsImV4cCI6MjA5NTEwNTYwMX0.ZGO3b6WuoaBRGjjrRIgsVStlLc1Xr7nYfCyt4mEQDyo';
 
 const ADMIN_USERS = [{u:'andres',p:'seycare2024'},{u:'beatriz',p:'Seycare.Bea24'}];
 
@@ -482,14 +482,14 @@ async function supaFetch(path, method='GET', body=null){
 
 // ══ LOGIN ESTUDIANTE ══
 async function doLogin(){
-  const nombre = document.getElementById('loginEmail').value.trim();
-  if(!nombre){ showLoginError('Ingresa tu nombre completo.'); return; }
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+  if(!email){ showLoginError('Ingresa tu email.'); return; }
   const btn = document.getElementById('btnLogin');
   btn.disabled=true; btn.textContent='Verificando...';
   document.getElementById('loginError').style.display='none';
   try {
-    const students = await supaFetch(`students?select=id,nombre,email&nombre=ilike.*${nombre}*&limit=1`);
-    if(!students||students.length===0){ showLoginError('Nombre no encontrado. Verifica que esté escrito exactamente como en tu registro.'); btn.disabled=false; btn.textContent='Ingresar →'; return; }
+    const students = await supaFetch(`students?select=id,nombre,email&email=eq.${email}&limit=1`);
+    if(!students||students.length===0){ showLoginError('Email no encontrado. Verifica que estés registrada en la academia.'); btn.disabled=false; btn.textContent='Ingresar →'; return; }
     const student = students[0];
     appState.student = student;
     // Cargar config
@@ -605,7 +605,7 @@ function renderQuestion(){
     btn.className='option-btn';
     if(answered!==null){ btn.classList.add('answered'); if(i===q.ans) btn.classList.add('correct'); else if(i===answered) btn.classList.add('wrong'); }
     btn.innerHTML=`<div class="opt-letter">${letters[i]}</div><div class="opt-text">${o}</div>`;
-    if(answered===null) btn.onclick=()=>selectAnswer(i);
+    btn.onclick=()=>selectAnswer(i);
     opts.appendChild(btn);
   });
   document.getElementById('prevBtn').disabled=(current===0);
@@ -616,7 +616,7 @@ function renderQuestion(){
 }
 
 function selectAnswer(i){
-  if(appState.exam.answers[appState.exam.current]!==null) return;
+  // Permitir cambiar respuesta si aún no avanzó
   appState.exam.answers[appState.exam.current]=i;
   renderQuestion();
 }
