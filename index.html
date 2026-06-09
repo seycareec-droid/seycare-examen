@@ -518,17 +518,11 @@ async function doLogin(){
       document.getElementById('waitingName').textContent=cfg.convocatoria_nombre||'Próxima convocatoria';
       showScreen('s-waiting'); btn.disabled=false; btn.textContent='Ingresar →'; return;
     }
-    // Verificar fecha/hora — Supabase guarda UTC, Ecuador es UTC-5
-    const ahora = new Date();
-    const toLocal = (isoStr) => {
-      if(!isoStr) return null;
-      // Si ya tiene timezone info lo parsea directo, si no agrega Z para UTC
-      const s = isoStr.includes('+') || isoStr.includes('Z') ? isoStr : isoStr + 'Z';
-      return new Date(s);
-    };
-    const fechaInicio = toLocal(cfg.fecha_inicio);
-    const fechaFin = toLocal(cfg.fecha_fin);
-    if(fechaFin && ahora > fechaFin){
+    // Verificar fecha/hora — comparar strings directamente en hora local
+    const ahoraStr = new Date().toISOString().slice(0,16);
+    const fechaInicioStr = cfg.fecha_inicio ? cfg.fecha_inicio.slice(0,16) : null;
+    const fechaFinStr = cfg.fecha_fin ? cfg.fecha_fin.slice(0,16) : null;
+    if(fechaFinStr && ahoraStr > fechaFinStr){
       document.getElementById('waitingIcon').textContent='🔒';
       document.getElementById('waitingTitle').textContent='Examen cerrado';
       document.getElementById('waitingDesc').textContent='El tiempo para rendir este examen ha finalizado.';
@@ -536,14 +530,14 @@ async function doLogin(){
       document.getElementById('waitingName').textContent=cfg.convocatoria_nombre||'';
       showScreen('s-waiting'); btn.disabled=false; btn.textContent='Ingresar →'; return;
     }
-    if(fechaInicio && ahora < fechaInicio){
+    if(fechaInicioStr && ahoraStr < fechaInicioStr){
       document.getElementById('waitingIcon').textContent='📅';
       document.getElementById('waitingTitle').textContent='¡Hola, '+student.nombre+'!';
       document.getElementById('waitingDesc').textContent='Tu examen comenzará en:';
       document.getElementById('countdownBox').style.display='block';
       document.getElementById('waitingName').textContent=cfg.convocatoria_nombre||'';
       showScreen('s-waiting');
-      startCountdown(fechaInicio);
+      startCountdown(new Date(fechaInicioStr));
       btn.disabled=false; btn.textContent='Ingresar →'; return;
     }
     // Verificar si ya rindió
@@ -847,15 +841,8 @@ async function loadAdminConfig(){
     document.getElementById('cfgPreguntas').value=cfg.num_preguntas;
     document.getElementById('cfgTiempo').value=cfg.tiempo_minutos;
     document.getElementById('cfgNombre').value=cfg.convocatoria_nombre||'';
-    // Convertir UTC a hora Ecuador (UTC-5) para mostrar en selector
-    const utcToEc = (isoStr) => {
-      if(!isoStr) return '';
-      const d = new Date(isoStr.includes('+') || isoStr.includes('Z') ? isoStr : isoStr+'Z');
-      d.setHours(d.getHours() - 5);
-      return d.toISOString().slice(0,16);
-    };
-    if(cfg.fecha_inicio){ document.getElementById('cfgFechaInicio').value=utcToEc(cfg.fecha_inicio); }
-    if(cfg.fecha_fin){ document.getElementById('cfgFechaFin').value=utcToEc(cfg.fecha_fin); }
+    if(cfg.fecha_inicio){ document.getElementById('cfgFechaInicio').value=cfg.fecha_inicio.slice(0,16); }
+    if(cfg.fecha_fin){ document.getElementById('cfgFechaFin').value=cfg.fecha_fin.slice(0,16); }
     cfgState.activa=cfg.convocatoria_activa;
     cfgState.recup=cfg.permite_recuperacion;
     updateToggle('activa');
@@ -877,13 +864,6 @@ async function saveConfig(){
   try {
     const fi=document.getElementById('cfgFechaInicio').value;
     const ff=document.getElementById('cfgFechaFin').value;
-    // Convertir hora Ecuador (UTC-5) a UTC sumando 5 horas
-    const ecToUtc = (localStr) => {
-      if(!localStr) return null;
-      const d = new Date(localStr);
-      d.setHours(d.getHours() + 5);
-      return d.toISOString();
-    };
     const newCfg={
       id:1,
       num_preguntas:parseInt(document.getElementById('cfgPreguntas').value)||20,
@@ -891,8 +871,8 @@ async function saveConfig(){
       convocatoria_nombre:document.getElementById('cfgNombre').value.trim()||'Convocatoria 1',
       convocatoria_activa:cfgState.activa,
       permite_recuperacion:cfgState.recup,
-      fecha_inicio:ecToUtc(fi),
-      fecha_fin:ecToUtc(ff)
+      fecha_inicio:fi||null,
+      fecha_fin:ff||null
     };
     await supaFetch('examen_config?id=eq.1','DELETE');
     await supaFetch('examen_config','POST',newCfg);
