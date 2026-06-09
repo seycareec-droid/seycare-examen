@@ -475,9 +475,6 @@ let appState = {
   exam: { questions:[], current:0, answers:[], startTime:null, timer:null, timeLeft:0, examenId:null },
   adminLogged: false
 };
-let cfgState = {activa:false, recup:false};
-  adminLogged: false
-};
 
 // ══ UTILS ══
 function showScreen(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); window.scrollTo(0,0); }
@@ -560,6 +557,7 @@ function doAdminLogin(){
   if(!found){ document.getElementById('adminError').textContent='Credenciales incorrectas.'; document.getElementById('adminError').style.display='block'; return; }
   appState.adminLogged=true;
   showScreen('s-admin');
+  loadAdminConfig();
   loadResultados();
 }
 function doLogoutAdmin(){ appState.adminLogged=false; showScreen('s-login'); }
@@ -945,6 +943,8 @@ document.getElementById('modalOverlay').addEventListener('click',function(e){ if
 // Enter en login
 document.getElementById('loginEmail').addEventListener('keydown',e=>{ if(e.key==='Enter') doLogin(); });
 document.getElementById('adminPass').addEventListener('keydown',e=>{ if(e.key==='Enter') doAdminLogin(); });
+document.getElementById('btnLogin').addEventListener('click', doLogin);
+document.querySelector('button[onclick="showScreen(\'s-admin-login\')"]')?.addEventListener('click', ()=>showScreen('s-admin-login'));
 </script>
 </body>
 </html>
