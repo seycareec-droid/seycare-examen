@@ -420,11 +420,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="config-title">⚙️ Configuración del Examen</div>
         <div class="config-row">
           <div class="config-label">Fecha y hora de inicio</div>
-          <input class="config-input" type="datetime-local" id="cfgFechaInicio" style="width:200px;"/>
+          <input class="config-input" type="datetime-local" id="cfgFechaInicio" style="width:200px;" step="60"/>
         </div>
         <div class="config-row">
           <div class="config-label">Fecha y hora de fin</div>
-          <input class="config-input" type="datetime-local" id="cfgFechaFin" style="width:200px;"/>
+          <input class="config-input" type="datetime-local" id="cfgFechaFin" style="width:200px;" step="60"/>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px;padding:8px 12px;background:var(--card2);border-radius:8px;">
+          ⏰ Ingresa la hora de <strong>Ecuador</strong> — el sistema la convierte automáticamente.
         </div>
         <div class="config-row">
           <div class="config-label">Número de preguntas</div>
@@ -477,6 +480,7 @@ let appState = {
   exam: { questions:[], current:0, answers:[], startTime:null, timer:null, timeLeft:0, examenId:null },
   adminLogged: false
 };
+let cfgState = {activa:false, recup:false};
 
 // ══ UTILS ══
 function showScreen(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); window.scrollTo(0,0); }
@@ -843,8 +847,15 @@ async function loadAdminConfig(){
     document.getElementById('cfgPreguntas').value=cfg.num_preguntas;
     document.getElementById('cfgTiempo').value=cfg.tiempo_minutos;
     document.getElementById('cfgNombre').value=cfg.convocatoria_nombre||'';
-    if(cfg.fecha_inicio){ document.getElementById('cfgFechaInicio').value=cfg.fecha_inicio.slice(0,16); }
-    if(cfg.fecha_fin){ document.getElementById('cfgFechaFin').value=cfg.fecha_fin.slice(0,16); }
+    // Convertir UTC a hora Ecuador (UTC-5) para mostrar en selector
+    const utcToEc = (isoStr) => {
+      if(!isoStr) return '';
+      const d = new Date(isoStr.includes('+') || isoStr.includes('Z') ? isoStr : isoStr+'Z');
+      d.setHours(d.getHours() - 5);
+      return d.toISOString().slice(0,16);
+    };
+    if(cfg.fecha_inicio){ document.getElementById('cfgFechaInicio').value=utcToEc(cfg.fecha_inicio); }
+    if(cfg.fecha_fin){ document.getElementById('cfgFechaFin').value=utcToEc(cfg.fecha_fin); }
     cfgState.activa=cfg.convocatoria_activa;
     cfgState.recup=cfg.permite_recuperacion;
     updateToggle('activa');
@@ -866,6 +877,13 @@ async function saveConfig(){
   try {
     const fi=document.getElementById('cfgFechaInicio').value;
     const ff=document.getElementById('cfgFechaFin').value;
+    // Convertir hora Ecuador (UTC-5) a UTC sumando 5 horas
+    const ecToUtc = (localStr) => {
+      if(!localStr) return null;
+      const d = new Date(localStr);
+      d.setHours(d.getHours() + 5);
+      return d.toISOString();
+    };
     const newCfg={
       id:1,
       num_preguntas:parseInt(document.getElementById('cfgPreguntas').value)||20,
@@ -873,8 +891,8 @@ async function saveConfig(){
       convocatoria_nombre:document.getElementById('cfgNombre').value.trim()||'Convocatoria 1',
       convocatoria_activa:cfgState.activa,
       permite_recuperacion:cfgState.recup,
-      fecha_inicio:fi?new Date(fi).toISOString():null,
-      fecha_fin:ff?new Date(ff).toISOString():null
+      fecha_inicio:ecToUtc(fi),
+      fecha_fin:ecToUtc(ff)
     };
     await supaFetch('examen_config?id=eq.1','DELETE');
     await supaFetch('examen_config','POST',newCfg);
