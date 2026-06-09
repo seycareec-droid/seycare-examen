@@ -475,6 +475,9 @@ let appState = {
   exam: { questions:[], current:0, answers:[], startTime:null, timer:null, timeLeft:0, examenId:null },
   adminLogged: false
 };
+let cfgState = {activa:false, recup:false};
+  adminLogged: false
+};
 
 // ══ UTILS ══
 function showScreen(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); window.scrollTo(0,0); }
@@ -557,7 +560,6 @@ function doAdminLogin(){
   if(!found){ document.getElementById('adminError').textContent='Credenciales incorrectas.'; document.getElementById('adminError').style.display='block'; return; }
   appState.adminLogged=true;
   showScreen('s-admin');
-  loadAdminConfig();
   loadResultados();
 }
 function doLogoutAdmin(){ appState.adminLogged=false; showScreen('s-login'); }
@@ -859,8 +861,8 @@ async function saveConfig(){
       convocatoria_nombre:document.getElementById('cfgNombre').value.trim()||'Convocatoria 1',
       convocatoria_activa:cfgState.activa,
       permite_recuperacion:cfgState.recup,
-      fecha_inicio:fi||null,
-      fecha_fin:ff||null
+      fecha_inicio:fi?new Date(fi).toISOString():null,
+      fecha_fin:ff?new Date(ff).toISOString():null
     };
     await supaFetch('examen_config?id=eq.1','DELETE');
     await supaFetch('examen_config','POST',newCfg);
