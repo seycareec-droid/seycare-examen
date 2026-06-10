@@ -708,7 +708,7 @@ function startExam(){
   let pool = [];
   MODULES.forEach(m => { pool = pool.concat(m.questions.map(q => ({...q, module:m.name, icon:m.icon}))); });
   pool = shuffle(pool).slice(0, Math.min(cfg.num_preguntas, pool.length));
-  appState.exam = { questions:pool, current:0, answers:new Array(pool.length).fill(null), startTime:Date.now(), timer:null, timeLeft:cfg.tiempo_minutos*60, examenId:null };
+  appState.exam = { questions:pool, current:0, answers:new Array(pool.length).fill(null), startTime:Date.now(), timer:null, timeLeft:cfg.tiempo_minutos*60, examenId:null, finished:false };
   showScreen('s-exam');
   renderQuestion();
   startTimer();
@@ -753,10 +753,19 @@ function renderQuestion(){
   if(current === total-1){ nb.textContent='Finalizar →'; nb.className='btn-nav btn-next btn-finish'; }
   else { nb.textContent='Siguiente →'; nb.className='btn-nav btn-next'; }
 }
-function nextQ(){ if(appState.exam.current===appState.exam.questions.length-1){ finishExam(); return; } appState.exam.current++; renderQuestion(); }
+function nextQ(){ 
+  if(appState.exam.current===appState.exam.questions.length-1){ 
+    if(!appState.exam.finished) finishExam(); 
+    return; 
+  } 
+  appState.exam.current++; 
+  renderQuestion(); 
+}
 function prevQ(){ if(appState.exam.current>0){ appState.exam.current--; renderQuestion(); } }
 
 async function finishExam(){
+  if(appState.exam.finished) return;
+  appState.exam.finished = true;
   clearInterval(appState.exam.timer);
   const {questions, answers, startTime} = appState.exam;
   const elapsed = Math.floor((Date.now()-startTime)/1000);
@@ -790,10 +799,10 @@ async function finishExam(){
     }
   } catch(e){ console.error('Error guardando examen:', e); }
 
-  showResults(correct, total, pct, nota, elapsed);
+  showResults(correct, total, pct, nota, elapsed, questions, answers);
 }
 
-function showResults(correct, total, pct, nota, elapsed){
+function showResults(correct, total, pct, nota, elapsed, questions, answers){
   const deg = Math.round((pct/100)*360);
   document.getElementById('scoreBg').style.background = `conic-gradient(var(--primary) ${deg}deg, var(--border) 0deg)`;
   const grades = [{min:90,g:'Excelente 🌟'},{min:70,g:'Aprobado ✓'},{min:50,g:'Regular ⚠️'},{min:0,g:'Necesita Refuerzo 📚'}];
