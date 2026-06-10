@@ -893,7 +893,6 @@ function updateToggle(key){
 async function saveConfig(){
   try {
     const fi = document.getElementById('cfgFechaInicio').value;
-    const ff = document.getElementById('cfgFechaFin').value;
     const newCfg = {
       id:1,
       num_preguntas: parseInt(document.getElementById('cfgPreguntas').value) || 20,
@@ -901,8 +900,8 @@ async function saveConfig(){
       convocatoria_nombre: document.getElementById('cfgNombre').value.trim() || 'Convocatoria 1',
       convocatoria_activa: cfgState.activa,
       permite_recuperacion: cfgState.recup,
-      fecha_inicio: fi ? new Date(fi).toISOString() : null,
-      fecha_fin: ff ? new Date(ff).toISOString() : null
+      fecha_inicio: fi ? fi + ':00' : null,
+      fecha_fin: null
     };
     await supaFetch('examen_config?id=eq.1','DELETE');
     await supaFetch('examen_config','POST', newCfg);
@@ -1013,7 +1012,7 @@ function renderConvocar(){
       `📧 Ingresa con tu correo: ${s.email||'(no registrado)'}\n` +
       `🔗 Link: https://seycare-examen.onrender.com\n\n` +
       `📋 ${cfg.convocatoria_nombre||'Convocatoria'}\n` +
-      (cfg.fecha_inicio ? `⏰ Inicio: ${new Date(cfg.fecha_inicio).toLocaleString('es-EC')}` : '') +
+      (cfg.fecha_inicio ? `⏰ Inicio: ${cfg.fecha_inicio.slice(0,16).replace('T',' ')}` : '') +
       `\n\n¡Mucho éxito! 🌟`
     );
     html += `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);">
@@ -1044,7 +1043,7 @@ function copiarMensajeGrupal(){
     `🔗 Link: https://seycare-examen.onrender.com\n` +
     `📧 Ingresen con su correo registrado\n\n` +
     `📋 ${cfg.convocatoria_nombre||'Convocatoria'}\n` +
-    (cfg.fecha_inicio ? `⏰ Inicio: ${new Date(cfg.fecha_inicio).toLocaleString('es-EC')}\n` : '') +
+    (cfg.fecha_inicio ? `⏰ Inicio: ${cfg.fecha_inicio.slice(0,16).replace('T',' ')}\n` : '') +
     `\n¡Mucho éxito a todas! 🌟`;
   navigator.clipboard.writeText(msg).then(() => showToast('Mensaje copiado ✓')).catch(() => showToast('Error al copiar','error'));
 }
