@@ -630,7 +630,7 @@ async function doLogin(){
     }
 
     // Verificar si ya rindió
-    const prevExams = await supaFetch(`examenes?select=id,nota&estudiante_id=eq.${appState.student.id}&convocatoria=eq.${encodeURIComponent(cfg.convocatoria_nombre)}&order=created_at.desc&limit=1`);
+    const prevExams = await supaFetch(`examenes?select=id,nota&estudiante_email=eq.${encodeURIComponent(email)}&convocatoria=eq.${encodeURIComponent(cfg.convocatoria_nombre)}&order=created_at.desc&limit=1`);
     if(prevExams && prevExams.length > 0 && !cfg.permite_recuperacion){
       document.getElementById('yaRindioNota').textContent = 'Tu nota: '+parseFloat(prevExams[0].nota).toFixed(2)+' / 10';
       showScreen('s-ya-rindio');
@@ -803,6 +803,7 @@ async function finishExam(){
 }
 
 function showResults(correct, total, pct, nota, elapsed, questions, answers){
+  try {
   const deg = Math.round((pct/100)*360);
   document.getElementById('scoreBg').style.background = `conic-gradient(var(--primary) ${deg}deg, var(--border) 0deg)`;
   const grades = [{min:90,g:'Excelente 🌟'},{min:70,g:'Aprobado ✓'},{min:50,g:'Regular ⚠️'},{min:0,g:'Necesita Refuerzo 📚'}];
@@ -836,11 +837,8 @@ function showResults(correct, total, pct, nota, elapsed, questions, answers){
   if(correct===total){ reviewList.innerHTML='<div class="empty-state">🎉 ¡Todas correctas!</div>'; }
 
   showScreen('s-results');
-  // Animar contador
   let n=0; const iv=setInterval(()=>{ n+=2; document.getElementById('scorePct').textContent=Math.min(n,pct); if(n>=pct)clearInterval(iv); },18);
-
-  // Variables necesarias para doneReview
-  appState.exam.lastResult = {questions, answers};
+  } catch(e){ alert('Error en resultados: ' + e.message); }
 }
 
 function doneReview(){
@@ -945,7 +943,7 @@ async function loadResultados(){
         <td><span class="estado-badge ${estadoCls}">${ex.enviada_academia?'✓ Enviada':'Pendiente'}</span></td>
         <td>
           <button class="btn-ver" onclick="verDetalle('${ex.id}')">Ver</button>
-          <button class="btn-enviar" ${ex.enviada_academia?'disabled':''} onclick="enviarNota('${ex.id}','${ex.estudiante_id}','${ex.nota}','${(ex.estudiante_nombre||'').replace(/'/g,"\\'")}')">
+          <button class="btn-enviar" ${ex.enviada_academia?'disabled':''} onclick="enviarNota('${ex.id}','${ex.estudiante_email}','${ex.nota}','${(ex.estudiante_nombre||'').replace(/'/g,"\\'")}')">
             ${ex.enviada_academia?'Enviada':'→ Academia'}
           </button>
         </td>
@@ -956,10 +954,10 @@ async function loadResultados(){
   } catch(e){ body.innerHTML='<div class="empty-state">Error cargando resultados.</div>'; }
 }
 
-async function enviarNota(examenId, estudianteId, nota, nombre){
+async function enviarNota(examenId, estudianteEmail, nota, nombre){
   if(!confirm(`¿Enviar nota ${parseFloat(nota).toFixed(2)} de ${nombre} al campo nota_teorico en Academia?`)) return;
   try {
-    await supaFetch(`students?id=eq.${estudianteId}`,'PATCH',{nota_teorico:parseFloat(nota)});
+    await supaFetch(`students?email=eq.${encodeURIComponent(estudianteEmail)}`,'PATCH',{nota_teorico:parseFloat(nota)});
     await supaFetch(`examenes?id=eq.${examenId}`,'PATCH',{enviada_academia:true,estado:'enviada'});
     showToast('Nota enviada a Academia ✓');
     loadResultados();
