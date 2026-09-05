@@ -169,6 +169,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .toast.show{opacity:1;}
 .toast.success{border-color:var(--success);color:var(--success);}
 .toast.error{border-color:var(--danger);color:var(--danger);}
+.practice-banner{background:var(--accent);color:#333;border-radius:14px;padding:12px 16px;text-align:center;font-size:13px;font-weight:700;margin-bottom:16px;}
 </style>
 </head>
 <body>
@@ -205,6 +206,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="login-info">Solo estudiantes registradas en Seycare Academy pueden acceder.</div>
     </div>
     <div style="text-align:center;margin-top:20px;">
+      <button class="btn-secondary" onclick="enterPracticeMode()">🎯 Practicar el ingreso y el examen (no registra nota)</button>
+    </div>
+    <div style="text-align:center;margin-top:10px;">
       <button class="btn-secondary" onclick="showScreen('s-admin-login')">Acceso administrador</button>
     </div>
   </div>
@@ -337,6 +341,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div><div class="header-title">Resultado del Examen</div></div>
   </div>
   <div class="results-wrap">
+    <div class="practice-banner" id="practiceBanner" style="display:none;">🎯 MODO PRÁCTICA — esta nota NO fue registrada</div>
     <div class="score-card" id="scoreCard">
       <div class="score-circle">
         <div class="score-circle-bg" id="scoreBg"></div>
@@ -364,7 +369,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
     <div class="done-msg" id="doneMsgBox">
       <p>✅ Has revisado tus errores. Tu nota quedará registrada con tus instructoras.</p>
-      <button class="btn-primary" onclick="showScreen('s-login')" style="margin-top:14px;">Cerrar sesión</button>
+      <button class="btn-primary" onclick="closeSession()" style="margin-top:14px;">Cerrar sesión</button>
     </div>
   </div>
 </div>
@@ -438,6 +443,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="config-title">🎯 Distribución de preguntas por módulo</div>
         <div id="moduleDistBody" style="font-size:12px;color:var(--muted);line-height:1.8;"></div>
       </div>
+      <div class="config-card">
+        <div class="config-title">🧪 Modo Práctica <span style="font-size:11px;color:var(--muted);font-weight:400;">(no registra nota, solo muestra el procedimiento)</span></div>
+        <div class="config-row">
+          <div class="config-label">Práctica habilitada</div>
+          <button id="btnPracticaActiva" class="toggle-btn" onclick="toggleCfg('practicaActiva')">✅ Sí</button>
+        </div>
+        <div class="config-row">
+          <div class="config-label">Número de preguntas <span style="font-size:11px;color:var(--muted)">(recomendado: 5-10)</span></div>
+          <input class="config-input" type="number" id="cfgPracticaPreguntas" min="1" max="90" value="8"/>
+        </div>
+        <div class="config-row">
+          <div class="config-label">Tiempo límite (minutos) <span style="font-size:11px;color:var(--muted)">(puedes usar 1 minuto para probar el flujo)</span></div>
+          <input class="config-input" type="number" id="cfgPracticaTiempo" min="1" max="180" value="1"/>
+        </div>
+        <button class="btn-primary" onclick="saveConfig()" style="margin-top:8px;">Guardar configuración</button>
+      </div>
     </div>
   </div>
 </div>
@@ -465,10 +486,11 @@ let appState = {
   config: null,
   exam: { questions:[], current:0, answers:[], startTime:null, timer:null, timeLeft:0, examenId:null },
   adminLogged: false,
-  resetId: null
+  resetId: null,
+  practiceMode: false
 };
 let countdownTimer = null;
-let cfgState = { activa: false, recup: false };
+let cfgState = { activa: false, recup: false, practicaActiva: true };
 let convocarStudents = [], convocarSelected = new Set();
 
 // ═══════════════════════════════════════════════════
@@ -605,6 +627,14 @@ async function doLogin(){
   btn.disabled = true; btn.textContent = 'Verificando...';
   document.getElementById('loginError').style.display = 'none';
   appState.resetId = null;
+
+  // MODO PRÁCTICA: usa exactamente la misma pantalla de login y el mismo botón,
+  // pero no valida contra la tabla students ni escribe nada en Supabase al final.
+  if(appState.practiceMode){
+    await doPracticeLogin(email, btn);
+    return;
+  }
+
   try {
     const students = await supaFetch(`students?select=id,nombre,email&email=eq.${encodeURIComponent(email)}&limit=1`);
     if(!students || !students.length){
@@ -714,10 +744,53 @@ function doLogoutAdmin(){ appState.adminLogged = false; showScreen('s-login'); }
 // ═══════════════════════════════════════════════════
 // EXAMEN
 // ═══════════════════════════════════════════════════
+function enterPracticeMode(){
+  appState.practiceMode = true;
+  const input = document.getElementById('loginEmail');
+  input.value = '';
+  input.placeholder = 'cualquier@email.com (modo práctica)';
+  document.getElementById('loginError').style.display = 'none';
+  showToast('🎯 Modo práctica activado: escribe cualquier email y presiona Ingresar →');
+  input.focus();
+}
+
+function closeSession(){
+  appState.practiceMode = false;
+  appState.student = null;
+  appState.resetId = null;
+  const input = document.getElementById('loginEmail');
+  if(input){ input.value=''; input.placeholder='tu@email.com'; }
+  showScreen('s-login');
+}
+
+async function doPracticeLogin(email, btn){
+  try {
+    const cfgs = await supaFetch('examen_config?id=eq.1&select=*');
+    const cfg = cfgs && cfgs[0] ? cfgs[0] : {};
+    if(cfg.practica_habilitada === false){
+      showLoginError('El modo práctica no está disponible en este momento.');
+      appState.practiceMode = false;
+      btn.disabled=false; btn.textContent='Ingresar →'; return;
+    }
+    // No se consulta la tabla students: cualquier email "pasa" en modo práctica.
+    appState.student = { id:null, email:null, nombre: email.split('@')[0] || 'Estudiante en práctica' };
+    appState.config = cfg;
+    document.getElementById('infoNombre').textContent = appState.student.nombre;
+    document.getElementById('infoConvNombre').textContent = '🎯 Modo práctica — no se registra nota';
+    document.getElementById('infoPreguntas').textContent = cfg.practica_preguntas || 8;
+    document.getElementById('infoTiempo').textContent = cfg.practica_tiempo_minutos || 1;
+    showScreen('s-info');
+  } catch(e){ showLoginError('Error de conexión. Intenta de nuevo.'); }
+  btn.disabled=false; btn.textContent='Ingresar →';
+}
+
 function startExam(){
   const cfg = appState.config;
-  const pool = buildExamPool(cfg.num_preguntas);
-  appState.exam = { questions:pool, current:0, answers:new Array(pool.length).fill(null), startTime:Date.now(), timer:null, timeLeft:cfg.tiempo_minutos*60, examenId:null, finished:false };
+  const isPractice = !!appState.practiceMode;
+  const numPreguntas = isPractice ? (cfg.practica_preguntas || 8) : cfg.num_preguntas;
+  const tiempoMin = isPractice ? (cfg.practica_tiempo_minutos || 1) : cfg.tiempo_minutos;
+  const pool = buildExamPool(numPreguntas);
+  appState.exam = { questions:pool, current:0, answers:new Array(pool.length).fill(null), startTime:Date.now(), timer:null, timeLeft:tiempoMin*60, examenId:null, finished:false, isPractice };
 
   // Si el estudiante entró con un reintento individual, márcalo como usado ahora
   if(appState.resetId){
@@ -749,7 +822,7 @@ function renderQuestion(){
   const {questions, current, answers} = appState.exam;
   const q = questions[current];
   const total = questions.length;
-  document.getElementById('qCounter').textContent = `${current+1} / ${total}`;
+  document.getElementById('qCounter').textContent = `${current+1} / ${total}` + (appState.exam.isPractice ? ' · 🎯 práctica' : '');
   document.getElementById('progressFill').style.width = `${((current+1)/total)*100}%`;
   document.getElementById('qModTag').textContent = `${q.icon} ${q.module}`;
   document.getElementById('qText').textContent = q.q;
@@ -800,7 +873,14 @@ async function finishExam(){
   const pct = Math.round((correct/total)*100);
   const nota = parseFloat(((correct/total)*10).toFixed(2));
 
-  // Guardar en Supabase
+  // Modo práctica: NO se escribe nada en Supabase. Ni examenes ni examenes_respuestas.
+  // Esto es intencional para no tocar el registro real de notas de las estudiantes.
+  if(appState.exam.isPractice){
+    showResults(correct, total, pct, nota, elapsed, questions, answers);
+    return;
+  }
+
+  // Guardar en Supabase (solo examen real)
   try {
     const exRes = await supaFetch('examenes','POST',{
       estudiante_email: appState.student.email,
@@ -829,6 +909,7 @@ async function finishExam(){
 
 function showResults(correct, total, pct, nota, elapsed, questions, answers){
   try {
+  document.getElementById('practiceBanner').style.display = appState.exam.isPractice ? 'block' : 'none';
   const deg = Math.round((pct/100)*360);
   document.getElementById('scoreBg').style.background = `conic-gradient(var(--primary) ${deg}deg, var(--border) 0deg)`;
   const grades = [{min:90,g:'Excelente 🌟'},{min:70,g:'Aprobado ✓'},{min:50,g:'Regular ⚠️'},{min:0,g:'Necesita Refuerzo 📚'}];
@@ -872,7 +953,14 @@ function doneReview(){
   document.getElementById('btnDoneReview').style.display = 'none';
   document.getElementById('reviewSection').style.display = 'none';
   document.getElementById('scoreCard').style.display = 'none';
-  document.getElementById('doneMsgBox').style.display = 'block';
+  document.getElementById('practiceBanner').style.display = 'none';
+  const box = document.getElementById('doneMsgBox');
+  if(appState.exam.isPractice){
+    box.querySelector('p').textContent = '🎯 Esto fue una práctica. Así se ve el procedimiento real del examen — tu nota NO fue registrada.';
+  } else {
+    box.querySelector('p').textContent = '✅ Has revisado tus errores. Tu nota quedará registrada con tus instructoras.';
+  }
+  box.style.display = 'block';
 }
 
 // ═══════════════════════════════════════════════════
@@ -901,7 +989,10 @@ async function loadAdminConfig(){
     if(cfg.fecha_inicio) document.getElementById('cfgFechaInicio').value = cfg.fecha_inicio.slice(0,16);
     cfgState.activa = !!cfg.convocatoria_activa;
     cfgState.recup = !!cfg.permite_recuperacion;
-    updateToggle('activa'); updateToggle('recup');
+    cfgState.practicaActiva = cfg.practica_habilitada !== false;
+    document.getElementById('cfgPracticaPreguntas').value = cfg.practica_preguntas || 8;
+    document.getElementById('cfgPracticaTiempo').value = cfg.practica_tiempo_minutos || 1;
+    updateToggle('activa'); updateToggle('recup'); updateToggle('practicaActiva');
   } catch(e){ showToast('Error cargando config','error'); }
   // La distribución por módulo es local (no depende de Supabase): siempre se muestra.
   renderModuleDistribution();
@@ -926,6 +1017,12 @@ function updateToggle(key){
     b.style.background = cfgState.recup ? 'var(--success)' : 'var(--card2)';
     b.style.color = cfgState.recup ? '#fff' : 'var(--muted)';
   }
+  if(key==='practicaActiva'){
+    const b = document.getElementById('btnPracticaActiva');
+    b.textContent = cfgState.practicaActiva ? '✅ Sí' : '❌ No';
+    b.style.background = cfgState.practicaActiva ? 'var(--success)' : 'var(--card2)';
+    b.style.color = cfgState.practicaActiva ? '#fff' : 'var(--muted)';
+  }
 }
 
 async function saveConfig(){
@@ -939,7 +1036,10 @@ async function saveConfig(){
       convocatoria_activa: cfgState.activa,
       permite_recuperacion: cfgState.recup,
       fecha_inicio: fi ? fi + ':00' : null,
-      fecha_fin: null
+      fecha_fin: null,
+      practica_habilitada: cfgState.practicaActiva,
+      practica_preguntas: parseInt(document.getElementById('cfgPracticaPreguntas').value) || 8,
+      practica_tiempo_minutos: parseInt(document.getElementById('cfgPracticaTiempo').value) || 1
     };
     await supaFetch('examen_config?id=eq.1','DELETE');
     await supaFetch('examen_config','POST', newCfg);
