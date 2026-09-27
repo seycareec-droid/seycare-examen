@@ -189,6 +189,53 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
+<!-- MODAL BANCO DE PREGUNTAS -->
+<div class="modal-overlay hidden" id="bancoModalOverlay">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeBancoModal()">✕</button>
+    <div class="modal-title" id="bancoModalTitle">Agregar pregunta</div>
+    <input type="hidden" id="bancoEditId"/>
+    <div class="field-group">
+      <div class="field-label">Módulo</div>
+      <select class="field-input" id="bancoModulo"></select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Pregunta</div>
+      <textarea class="field-input" id="bancoPregunta" rows="3" style="resize:vertical;"></textarea>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Opción A</div>
+      <input class="field-input" id="bancoOpt0"/>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Opción B</div>
+      <input class="field-input" id="bancoOpt1"/>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Opción C</div>
+      <input class="field-input" id="bancoOpt2"/>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Opción D</div>
+      <input class="field-input" id="bancoOpt3"/>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Respuesta correcta</div>
+      <select class="field-input" id="bancoRespuesta">
+        <option value="0">A</option>
+        <option value="1">B</option>
+        <option value="2">C</option>
+        <option value="3">D</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Explicación</div>
+      <textarea class="field-input" id="bancoExplicacion" rows="2" style="resize:vertical;"></textarea>
+    </div>
+    <button class="btn-primary" onclick="saveBancoPregunta()">Guardar pregunta</button>
+  </div>
+</div>
+
 <!-- ═══ LOGIN ESTUDIANTE ═══ -->
 <div class="screen active" id="s-login">
   <div class="header">
@@ -390,6 +437,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <button class="admin-tab active" onclick="adminTab('resultados',this)">📊 Resultados</button>
       <button class="admin-tab" onclick="adminTab('convocar',this)">📲 Convocar</button>
       <button class="admin-tab" onclick="adminTab('accesos',this)">🕐 Accesos</button>
+      <button class="admin-tab" onclick="adminTab('banco',this)">🗂️ Banco</button>
       <button class="admin-tab" onclick="adminTab('config',this)">⚙️ Config</button>
     </div>
 
@@ -441,6 +489,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </div>
     </div>
 
+    <!-- BANCO DE PREGUNTAS -->
+    <div class="admin-section" id="atab-banco">
+      <div class="config-card">
+        <div class="config-title">🗂️ Banco de Preguntas</div>
+        <div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <select id="bancoNivelFilter" class="config-input" style="width:auto;min-width:180px;" onchange="loadBanco()">
+            <option value="">Todos los niveles</option>
+            <option value="1">Nivel 1 — Básico</option>
+            <option value="2">Nivel 2 — Intermedio</option>
+            <option value="3">Nivel 3 — Avanzado</option>
+          </select>
+          <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:0;" onclick="openBancoModal(null)">+ Agregar pregunta</button>
+        </div>
+        <div id="bancoCount" style="font-size:12px;color:var(--muted);margin-bottom:10px;"></div>
+        <div id="bancoBody"><div class="empty-state"><span class="spinner"></span> Cargando...</div></div>
+      </div>
+    </div>
+
     <!-- CONFIG -->
     <div class="admin-section" id="atab-config">
       <div class="config-card">
@@ -474,6 +540,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="config-card">
         <div class="config-title">🎯 Distribución de preguntas por módulo</div>
         <div id="moduleDistBody" style="font-size:12px;color:var(--muted);line-height:1.8;"></div>
+      </div>
+      <div class="config-card">
+        <div class="config-title">📚 Configuración por Nivel <span style="font-size:11px;color:var(--muted);font-weight:400;">(cierre de nivel — filtro de avance, no cuenta para la nota final)</span></div>
+        <div id="nivelesConfigBody"><div class="empty-state"><span class="spinner"></span> Cargando...</div></div>
       </div>
       <div class="config-card">
         <div class="config-title">🧪 Modo Práctica <span style="font-size:11px;color:var(--muted);font-weight:400;">(no registra nota, solo muestra el procedimiento)</span></div>
@@ -1068,6 +1138,7 @@ function adminTab(tab, btn){
   if(tab==='resultados') loadResultados();
   if(tab==='convocar') loadConvocar();
   if(tab==='accesos') loadAccesos();
+  if(tab==='banco') loadBanco();
 }
 
 // ═══════════════════════════════════════════════════
@@ -1090,6 +1161,7 @@ async function loadAdminConfig(){
   } catch(e){ showToast('Error cargando config','error'); }
   // La distribución por módulo es local (no depende de Supabase): siempre se muestra.
   renderModuleDistribution();
+  loadNivelesConfig();
 }
 
 document.getElementById('cfgPreguntas').addEventListener('input', renderModuleDistribution);
@@ -1385,6 +1457,173 @@ function copiarMensajeGrupal(){
     (cfg.fecha_inicio ? `⏰ Inicio: ${cfg.fecha_inicio.slice(0,16).replace('T',' ')}\n` : '') +
     `\n¡Mucho éxito a todas! 🌟`;
   navigator.clipboard.writeText(msg).then(() => showToast('Mensaje copiado ✓')).catch(() => showToast('Error al copiar','error'));
+}
+
+// ═══════════════════════════════════════════════════
+// ADMIN — BANCO DE PREGUNTAS (examen_banco_preguntas / examen_modulos)
+// ═══════════════════════════════════════════════════
+const NIVELES_INFO = { 1: 'Nivel 1 — Básico', 2: 'Nivel 2 — Intermedio', 3: 'Nivel 3 — Avanzado' };
+let bancoModulosCache = [];
+
+async function loadBancoModulos(force){
+  if(bancoModulosCache.length && !force) return bancoModulosCache;
+  try {
+    bancoModulosCache = await supaFetch('examen_modulos?select=*&order=nivel,nombre') || [];
+  } catch(e){ console.error('Error cargando examen_modulos:', e); bancoModulosCache = []; }
+  return bancoModulosCache;
+}
+
+async function loadBanco(){
+  const body = document.getElementById('bancoBody');
+  const countEl = document.getElementById('bancoCount');
+  body.innerHTML = '<div class="empty-state"><span class="spinner"></span> Cargando...</div>';
+  try {
+    const modulos = await loadBancoModulos();
+    if(!modulos.length){ body.innerHTML = '<div class="empty-state">No se encontraron módulos (examen_modulos vacía).</div>'; return; }
+    const nivel = document.getElementById('bancoNivelFilter').value;
+    const modIds = nivel ? modulos.filter(m => String(m.nivel) === nivel).map(m => m.id) : modulos.map(m => m.id);
+    if(!modIds.length){ body.innerHTML = '<div class="empty-state">No hay módulos en ese nivel.</div>'; if(countEl) countEl.textContent=''; return; }
+    const filtro = modIds.map(id => `"${id}"`).join(',');
+    const preguntas = await supaFetch(`examen_banco_preguntas?select=*&modulo_id=in.(${filtro})&order=modulo_id,created_at`);
+    if(countEl) countEl.textContent = `${preguntas ? preguntas.length : 0} preguntas`;
+    if(!preguntas || !preguntas.length){ body.innerHTML = '<div class="empty-state">No hay preguntas registradas con este filtro.</div>'; return; }
+    const modMap = {};
+    modulos.forEach(m => modMap[m.id] = m);
+    let html = '';
+    preguntas.forEach(p => {
+      const mod = modMap[p.modulo_id] || {};
+      const inactiva = p.activa === false;
+      html += `<div class="review-card" style="${inactiva ? 'opacity:0.55;' : ''}">
+        <div class="review-mod">${mod.icono || ''} ${mod.nombre || p.modulo_id}${mod.nivel ? ' — ' + NIVELES_INFO[mod.nivel] : ''}${inactiva ? ' · 🚫 Inactiva' : ''}</div>
+        <div class="review-q">${p.pregunta}</div>
+        ${p.imagen ? `<img class="review-img" src="${p.imagen}" alt="Imagen de referencia"/>` : ''}
+        <div style="margin-top:10px;">
+          <button class="btn-ver" onclick="openBancoModal('${p.id}')">✏️ Editar</button>
+          <button class="${inactiva ? 'btn-reenviar' : 'btn-reset'}" onclick="toggleBancoActiva('${p.id}', ${inactiva})">${inactiva ? '✅ Activar' : '🚫 Desactivar'}</button>
+        </div>
+      </div>`;
+    });
+    body.innerHTML = html;
+  } catch(e){ body.innerHTML = '<div class="empty-state">Error cargando el banco de preguntas.</div>'; console.error(e); }
+}
+
+async function openBancoModal(id){
+  const modulos = await loadBancoModulos();
+  const sel = document.getElementById('bancoModulo');
+  sel.innerHTML = modulos.map(m => `<option value="${m.id}">${m.icono || ''} ${m.nombre} (Nivel ${m.nivel})</option>`).join('');
+  document.getElementById('bancoEditId').value = id || '';
+  document.getElementById('bancoModalTitle').textContent = id ? 'Editar pregunta' : 'Agregar pregunta';
+  const clear = () => {
+    document.getElementById('bancoPregunta').value = '';
+    document.getElementById('bancoOpt0').value = '';
+    document.getElementById('bancoOpt1').value = '';
+    document.getElementById('bancoOpt2').value = '';
+    document.getElementById('bancoOpt3').value = '';
+    document.getElementById('bancoRespuesta').value = '0';
+    document.getElementById('bancoExplicacion').value = '';
+  };
+  if(id){
+    try {
+      const rows = await supaFetch(`examen_banco_preguntas?id=eq.${id}&select=*`);
+      const p = rows && rows[0];
+      if(p){
+        sel.value = p.modulo_id;
+        document.getElementById('bancoPregunta').value = p.pregunta || '';
+        const opts = p.opciones || [];
+        document.getElementById('bancoOpt0').value = opts[0] || '';
+        document.getElementById('bancoOpt1').value = opts[1] || '';
+        document.getElementById('bancoOpt2').value = opts[2] || '';
+        document.getElementById('bancoOpt3').value = opts[3] || '';
+        document.getElementById('bancoRespuesta').value = String(p.respuesta_correcta);
+        document.getElementById('bancoExplicacion').value = p.explicacion || '';
+      } else { clear(); }
+    } catch(e){ clear(); console.error(e); }
+  } else {
+    clear();
+  }
+  document.getElementById('bancoModalOverlay').classList.remove('hidden');
+}
+function closeBancoModal(){ document.getElementById('bancoModalOverlay').classList.add('hidden'); }
+
+async function saveBancoPregunta(){
+  const id = document.getElementById('bancoEditId').value;
+  const payload = {
+    modulo_id: document.getElementById('bancoModulo').value,
+    pregunta: document.getElementById('bancoPregunta').value.trim(),
+    opciones: [
+      document.getElementById('bancoOpt0').value.trim(),
+      document.getElementById('bancoOpt1').value.trim(),
+      document.getElementById('bancoOpt2').value.trim(),
+      document.getElementById('bancoOpt3').value.trim()
+    ],
+    respuesta_correcta: parseInt(document.getElementById('bancoRespuesta').value),
+    explicacion: document.getElementById('bancoExplicacion').value.trim()
+  };
+  if(!payload.pregunta || payload.opciones.some(o => !o)){
+    showToast('Completa la pregunta y las 4 opciones', 'error'); return;
+  }
+  try {
+    if(id){
+      await supaFetch(`examen_banco_preguntas?id=eq.${id}`, 'PATCH', payload);
+    } else {
+      await supaFetch('examen_banco_preguntas', 'POST', payload);
+    }
+    showToast('Pregunta guardada ✓');
+    closeBancoModal();
+    loadBanco();
+  } catch(e){ showToast('Error guardando la pregunta', 'error'); console.error(e); }
+}
+
+async function toggleBancoActiva(id, activar){
+  try {
+    await supaFetch(`examen_banco_preguntas?id=eq.${id}`, 'PATCH', { activa: activar });
+    loadBanco();
+  } catch(e){ showToast('Error actualizando la pregunta', 'error'); console.error(e); }
+}
+
+// ═══════════════════════════════════════════════════
+// ADMIN — CONFIGURACIÓN POR NIVEL (examen_niveles_config, cierre de nivel)
+// ═══════════════════════════════════════════════════
+async function loadNivelesConfig(){
+  const body = document.getElementById('nivelesConfigBody');
+  if(!body) return;
+  body.innerHTML = '<div class="empty-state"><span class="spinner"></span> Cargando...</div>';
+  try {
+    const rows = await supaFetch('examen_niveles_config?select=*&order=nivel') || [];
+    if(!rows.length){ body.innerHTML = '<div class="empty-state">No hay configuración de niveles (examen_niveles_config vacía).</div>'; return; }
+    let html = '';
+    rows.forEach(r => {
+      html += `<div style="border-bottom:1px solid var(--border);padding:14px 0;">
+        <div style="font-weight:700;margin-bottom:10px;color:var(--accent);">${NIVELES_INFO[r.nivel] || ('Nivel ' + r.nivel)}</div>
+        <div class="config-row">
+          <div class="config-label">Número de preguntas</div>
+          <input class="config-input" type="number" min="1" max="90" id="nivelPreguntas_${r.nivel}" value="${r.num_preguntas}"/>
+        </div>
+        <div class="config-row">
+          <div class="config-label">Tiempo límite (minutos)</div>
+          <input class="config-input" type="number" min="1" max="180" id="nivelTiempo_${r.nivel}" value="${r.tiempo_minutos}"/>
+        </div>
+        <div class="config-row">
+          <div class="config-label">Nota mínima para aprobar (0-10)</div>
+          <input class="config-input" type="number" min="0" max="10" step="0.1" id="nivelNotaMin_${r.nivel}" value="${r.nota_minima}"/>
+        </div>
+        <button class="btn-primary" style="margin-top:4px;width:auto;padding:10px 18px;" onclick="saveNivelConfig(${r.nivel})">Guardar Nivel ${r.nivel}</button>
+      </div>`;
+    });
+    body.innerHTML = html;
+  } catch(e){ body.innerHTML = '<div class="empty-state">Error cargando configuración por nivel.</div>'; console.error(e); }
+}
+
+async function saveNivelConfig(nivel){
+  const payload = {
+    num_preguntas: parseInt(document.getElementById(`nivelPreguntas_${nivel}`).value),
+    tiempo_minutos: parseInt(document.getElementById(`nivelTiempo_${nivel}`).value),
+    nota_minima: parseFloat(document.getElementById(`nivelNotaMin_${nivel}`).value)
+  };
+  try {
+    await supaFetch(`examen_niveles_config?nivel=eq.${nivel}`, 'PATCH', payload);
+    showToast(`Configuración de Nivel ${nivel} guardada ✓`);
+  } catch(e){ showToast('Error guardando configuración de nivel', 'error'); console.error(e); }
 }
 
 </script>
