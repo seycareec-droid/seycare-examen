@@ -474,6 +474,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           <button onclick="copiarMensajeGrupal()" style="background:#25D366;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;">💬 Copiar mensaje grupal</button>
         </div>
         <div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <select id="convocarEstadoFilter" class="config-input" style="width:auto;min-width:150px;" onchange="onConvocarFilterChange()">
+            <option value="">👥 Todos los estados</option>
+          </select>
+          <select id="convocarModuloFilter" class="config-input" style="width:auto;min-width:150px;" onchange="onConvocarFilterChange()">
+            <option value="">📘 Todos los módulos</option>
+          </select>
+          <select id="convocarInicioFilter" class="config-input" style="width:auto;min-width:170px;" onchange="onConvocarFilterChange()">
+            <option value="">📅 Todas las fechas de inicio</option>
+          </select>
           <select id="convocarPromoFilter" class="config-input" style="width:auto;min-width:160px;" onchange="onConvocarFilterChange()">
             <option value="">🎓 Todas las promociones</option>
           </select>
@@ -483,6 +492,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
             <option value="sin_tel">🔴 Sin teléfono</option>
             <option value="sin_ambos">🔴 Sin email y sin teléfono</option>
           </select>
+        </div>
+        <div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button class="btn-secondary" style="font-size:11px;padding:6px 12px;margin-top:0;width:auto;" onclick="onConvocarQuickFilter('en_curso')">🟢 Solo en curso</button>
+          <button class="btn-secondary" style="font-size:11px;padding:6px 12px;margin-top:0;width:auto;" onclick="onConvocarQuickFilter('graduada')">🎓 Solo graduadas</button>
+          <button class="btn-secondary" style="font-size:11px;padding:6px 12px;margin-top:0;width:auto;" onclick="onConvocarQuickFilter('')">✖️ Quitar filtro de estado</button>
         </div>
         <div id="convocarCount" style="font-size:12px;color:var(--muted);margin-bottom:10px;"></div>
         <div id="convocarBody"><div class="empty-state"><span class="spinner"></span> Cargando...</div></div>
@@ -594,7 +608,17 @@ let appState = {
 let countdownTimer = null;
 let cfgState = { activa: false, recup: false, practicaActiva: true };
 let convocarStudents = [], convocarSelected = new Set();
-let convocarFilters = { promocion:'', contacto:'todas' };
+let convocarFilters = { promocion:'', contacto:'todas', estado:'', modulo:'', inicio:'' };
+
+// Orden natural sugerido para módulos conocidos; cualquier otro valor se agrega al final, ordenado alfabéticamente.
+const MODULO_ORDEN = ['Modulo 1','Modulo 2','Modulo 3','Vacacional','Practico Final'];
+const ESTADO_LABELS = { en_curso:'🟢 En curso', graduada:'🎓 Graduada', finalizada:'✅ Finalizada', reprobada:'🔴 Reprobada', retirada:'⚪ Retirada' };
+function fmtFechaCorta(iso){
+  if(!iso) return '';
+  const [y,m,d] = iso.split('-');
+  const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  return `${parseInt(d,10)} ${MESES[parseInt(m,10)-1]} ${y}`;
+}
 
 // ═══════════════════════════════════════════════════
 // UTILS
@@ -1356,11 +1380,15 @@ async function loadConvocar(){
   body.innerHTML = '<div class="empty-state"><span class="spinner"></span> Cargando...</div>';
   try {
     const [data, promos] = await Promise.all([
-      supaFetch('students?select=id,nombre,telefono,email,estado,promocion&estado=in.(egresada,graduada)&order=nombre'),
+      // Se excluyen solo las retiradas (no tiene sentido convocarlas a nada); todo lo demás
+      // (en_curso, graduada, finalizada, reprobada) se filtra desde los selects de la UI.
+      supaFetch('students?select=id,nombre,telefono,email,estado,promocion,modulo,inicio&estado=neq.retirada&order=nombre'),
       supaFetch('promociones?select=nombre&order=nombre').catch(()=>[])
     ]);
     convocarStudents = data || [];
-    convocarSelected = new Set(convocarStudents.map(s => s.id));
+    // No se preselecciona a nadie: con el universo ampliado (ya no solo graduadas) conviene
+    // que la instructora filtre primero y luego elija explícitamente el grupo a convocar.
+    convocarSelected = new Set();
     renderConvocarFilterOptions(promos || []);
     renderConvocar();
   } catch(e){ body.innerHTML='<div class="empty-state">Error cargando estudiantes.</div>'; }
@@ -1379,17 +1407,66 @@ function renderConvocarFilterOptions(promos){
   sel.value = convocarFilters.promocion;
   const selC = document.getElementById('convocarContactoFilter');
   if(selC) selC.value = convocarFilters.contacto;
+
+  // Estado: solo se listan los estados que realmente aparecen en los datos cargados.
+  const selE = document.getElementById('convocarEstadoFilter');
+  if(selE){
+    const estados = Array.from(new Set(convocarStudents.map(s => s.estado).filter(Boolean))).sort();
+    selE.innerHTML = '<option value="">👥 Todos los estados</option>' +
+      estados.map(e => `<option value="${e}">${ESTADO_LABELS[e] || e}</option>`).join('');
+    selE.value = convocarFilters.estado;
+  }
+
+  // Módulo: orden sugerido (Modulo 1/2/3, Vacacional, Practico Final) y cualquier otro al final.
+  const selM = document.getElementById('convocarModuloFilter');
+  if(selM){
+    const modulos = Array.from(new Set(convocarStudents.map(s => s.modulo).filter(Boolean)));
+    modulos.sort((a,b) => {
+      const ia = MODULO_ORDEN.indexOf(a), ib = MODULO_ORDEN.indexOf(b);
+      if(ia === -1 && ib === -1) return a.localeCompare(b,'es');
+      if(ia === -1) return 1;
+      if(ib === -1) return -1;
+      return ia - ib;
+    });
+    selM.innerHTML = '<option value="">📘 Todos los módulos</option>' +
+      modulos.map(m => `<option value="${m.replace(/"/g,'&quot;')}">${m}</option>`).join('');
+    selM.value = convocarFilters.modulo;
+  }
+
+  // Fecha de inicio: fechas distintas presentes, más recientes primero (útil para ubicar un grupo/cohorte).
+  const selI = document.getElementById('convocarInicioFilter');
+  if(selI){
+    const fechas = Array.from(new Set(convocarStudents.map(s => s.inicio).filter(Boolean))).sort((a,b) => b.localeCompare(a));
+    selI.innerHTML = '<option value="">📅 Todas las fechas de inicio</option>' +
+      fechas.map(f => `<option value="${f}">${fmtFechaCorta(f)}</option>`).join('');
+    selI.value = convocarFilters.inicio;
+  }
 }
 
 function onConvocarFilterChange(){
   convocarFilters.promocion = document.getElementById('convocarPromoFilter').value;
   convocarFilters.contacto = document.getElementById('convocarContactoFilter').value;
+  convocarFilters.estado = document.getElementById('convocarEstadoFilter').value;
+  convocarFilters.modulo = document.getElementById('convocarModuloFilter').value;
+  convocarFilters.inicio = document.getElementById('convocarInicioFilter').value;
+  renderConvocar();
+}
+
+// Atajos para los dos casos de uso más comunes (cierre de módulo vs. examen final),
+// sin tener que abrir el select de Estado cada vez.
+function onConvocarQuickFilter(estado){
+  convocarFilters.estado = estado;
+  const selE = document.getElementById('convocarEstadoFilter');
+  if(selE) selE.value = estado;
   renderConvocar();
 }
 
 function getConvocarFiltered(){
   return convocarStudents.filter(s => {
     if(convocarFilters.promocion && (s.promocion||'') !== convocarFilters.promocion) return false;
+    if(convocarFilters.estado && (s.estado||'') !== convocarFilters.estado) return false;
+    if(convocarFilters.modulo && (s.modulo||'') !== convocarFilters.modulo) return false;
+    if(convocarFilters.inicio && (s.inicio||'') !== convocarFilters.inicio) return false;
     const tieneTel = s.telefono && s.telefono.length >= 9;
     const tieneEmail = s.email && s.email.includes('@');
     if(convocarFilters.contacto === 'sin_email' && tieneEmail) return false;
@@ -1426,6 +1503,9 @@ function renderConvocar(){
       <div style="flex:1;">
         <div style="font-size:14px;font-weight:700;">${s.nombre}</div>
         <div style="font-size:11px;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;">
+          ${s.estado?`<span style="color:var(--muted);">${ESTADO_LABELS[s.estado] || s.estado}</span>`:''}
+          ${s.modulo?`<span style="color:#64748b;">📘 ${s.modulo}</span>`:''}
+          ${s.inicio?`<span style="color:#64748b;">📅 ${fmtFechaCorta(s.inicio)}</span>`:''}
           ${s.promocion?`<span style="color:var(--accent);">🎓 ${s.promocion}</span>`:''}
           ${tieneEmail?`<span style="color:var(--primary);">✉ ${s.email}</span>`:`<span style="color:var(--danger);">✉ Sin email</span>`}
           ${tieneTel?`<span style="color:#64748b;">📱 ${s.telefono}</span>`:`<span style="color:var(--danger);">📱 Sin teléfono</span>`}
