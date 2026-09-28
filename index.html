@@ -436,6 +436,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="admin-tabs">
       <button class="admin-tab active" onclick="adminTab('resultados',this)">📊 Resultados</button>
       <button class="admin-tab" onclick="adminTab('convocar',this)">📲 Convocar</button>
+      <button class="admin-tab" onclick="adminTab('cierre',this)">🎯 Cierre de Módulo</button>
       <button class="admin-tab" onclick="adminTab('accesos',this)">🕐 Accesos</button>
       <button class="admin-tab" onclick="adminTab('banco',this)">🗂️ Banco</button>
       <button class="admin-tab" onclick="adminTab('config',this)">⚙️ Config</button>
@@ -500,6 +501,40 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         </div>
         <div id="convocarCount" style="font-size:12px;color:var(--muted);margin-bottom:10px;"></div>
         <div id="convocarBody"><div class="empty-state"><span class="spinner"></span> Cargando...</div></div>
+      </div>
+    </div>
+
+    <!-- CIERRE DE MÓDULO -->
+    <div class="admin-section" id="atab-cierre">
+      <div class="config-card">
+        <div class="config-title">🎯 Nueva convocatoria de cierre de módulo</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:12px;">
+          1) En <b>Convocar</b> filtra y marca a las estudiantes que rinden.<br>
+          2) Aquí elige el nivel y crea la convocatoria: rendirán solo preguntas de ese nivel.
+        </div>
+        <div id="cierreSeleccion" style="font-size:13px;font-weight:700;margin-bottom:12px;"></div>
+        <div class="config-row">
+          <div class="config-label">Nivel a evaluar</div>
+          <select id="cierreNivel" class="config-input" onchange="actualizarCierreNombre()">
+            <option value="1">Nivel 1 — Básico (Módulo 1)</option>
+            <option value="2">Nivel 2 — Intermedio (Módulo 2)</option>
+            <option value="3">Nivel 3 — Avanzado (Módulo 3)</option>
+          </select>
+        </div>
+        <div class="config-row">
+          <div class="config-label">Nombre</div>
+          <input class="config-input wide" type="text" id="cierreNombre"/>
+        </div>
+        <div class="config-row">
+          <div class="config-label">Fecha y hora de inicio <span style="font-size:11px;color:var(--muted)">(opcional)</span></div>
+          <input class="config-input wide" type="datetime-local" id="cierreFecha"/>
+        </div>
+        <button class="btn-primary" onclick="crearConvocatoriaNivel()" style="margin-top:8px;">Crear y activar convocatoria</button>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;">Preguntas y tiempo salen de "Configuración por Nivel" (pestaña Config).</div>
+      </div>
+      <div class="config-card">
+        <div class="config-title">📋 Convocatorias de módulo</div>
+        <div id="cierreLista"><div class="empty-state"><span class="spinner"></span> Cargando...</div></div>
       </div>
     </div>
 
@@ -593,6 +628,15 @@ const ADMIN_USERS = [{u:'andres',p:'seycare2024'},{u:'beatriz',p:'Seycare.Bea24'
 // Tope de preguntas por módulo en un mismo intento (evita agotar módulos pequeños
 // o permitir resolver por descarte cuando todas las preguntas de un módulo comparten opciones).
 const MODULE_CAPS = { formas: 2 };
+// Espejo de examen_modulos.nivel (Supabase) — qué módulos del banco componen cada nivel del curso.
+// Se mantiene aquí (no se consulta en vivo) porque MODULES ya es una constante estática horneada
+// en este archivo; si se agregan/mueven módulos de nivel hay que actualizar ambos lugares.
+const NIVEL_MODULOS = {
+  1: ['bioseguridad','anatomia_una','esmalte_trad','patologias','semipermanente'],
+  2: ['acrilico','formas'],
+  3: ['polygel','rubber_builder','soft_gel']
+};
+const NIVELES_NOMBRES = { 1: 'Nivel 1 — Básico', 2: 'Nivel 2 — Intermedio', 3: 'Nivel 3 — Avanzado' };
 
 // ═══════════════════════════════════════════════════
 // ESTADO
@@ -603,7 +647,8 @@ let appState = {
   exam: { questions:[], current:0, answers:[], startTime:null, timer:null, timeLeft:0, examenId:null },
   adminLogged: false,
   resetId: null,
-  practiceMode: false
+  practiceMode: false,
+  nivelActivo: null
 };
 let countdownTimer = null;
 let cfgState = { activa: false, recup: false, practicaActiva: true };
@@ -660,9 +705,12 @@ function pad2(n){ return String(n).padStart(2,'0'); }
 // ═══════════════════════════════════════════════════
 // SORTEO PROPORCIONAL DE PREGUNTAS + BARAJADO DE OPCIONES
 // ═══════════════════════════════════════════════════
-function buildExamPool(desiredTotal){
+function buildExamPool(desiredTotal, modulosSubset){
+  // modulosSubset es opcional: si se omite, se usa el banco completo (comportamiento de siempre,
+  // examen final). Para un examen de cierre de nivel se pasa solo los módulos de ese nivel.
+  const fuente = modulosSubset || MODULES;
   // 1) tope efectivo por módulo (tamaño real o MODULE_CAPS, lo que sea menor)
-  const mods = MODULES.map(m => ({
+  const mods = fuente.map(m => ({
     id: m.id, name: m.name, icon: m.icon, size: m.questions.length,
     cap: Math.min(m.questions.length, MODULE_CAPS[m.id] !== undefined ? MODULE_CAPS[m.id] : m.questions.length)
   }));
@@ -690,7 +738,7 @@ function buildExamPool(desiredTotal){
 
   // 4) selecciona preguntas concretas de cada módulo
   let pool = [];
-  MODULES.forEach(m => {
+  fuente.forEach(m => {
     const a = alloc.find(x => x.id === m.id);
     if(!a || a.count === 0) return;
     const picked = shuffle(m.questions).slice(0, a.count);
@@ -709,6 +757,12 @@ function buildExamPool(desiredTotal){
   });
 
   return pool;
+}
+
+function buildExamPoolPorNivel(desiredTotal, nivel){
+  const ids = NIVEL_MODULOS[nivel] || [];
+  const subset = MODULES.filter(m => ids.includes(m.id));
+  return buildExamPool(desiredTotal, subset);
 }
 
 function renderModuleDistribution(){
@@ -785,8 +839,37 @@ async function doLogin(){
       btn.disabled=false; btn.textContent='Ingresar →'; return;
     }
     appState.student = students[0];
-    const cfgs = await supaFetch('examen_config?id=eq.1&select=*');
-    const cfg = cfgs && cfgs[0] ? cfgs[0] : { num_preguntas:40, tiempo_minutos:25, convocatoria_activa:false, convocatoria_nombre:'Convocatoria 1', permite_recuperacion:false };
+    appState.nivelActivo = null;
+
+    // Convocatorias de cierre de nivel (aditivo): si esta estudiante está convocada a una
+    // convocatoria de nivel activa, esa manda; si no hay ninguna, sigue el flujo de siempre
+    // (examen_config global, examen final). No afecta a nadie que no esté en una de estas listas.
+    let cfg = null;
+    try {
+      const convNivel = await supaFetch('examen_convocatorias_nivel?activa=eq.true&select=*&order=created_at.desc');
+      const match = (convNivel || []).find(c => {
+        try { return JSON.parse(c.estudiantes_ids || '[]').includes(appState.student.id); }
+        catch(e){ return false; }
+      });
+      if(match){
+        const nivelCfgs = await supaFetch(`examen_niveles_config?nivel=eq.${match.nivel}&select=*`);
+        const nc = nivelCfgs && nivelCfgs[0] ? nivelCfgs[0] : { num_preguntas:20, tiempo_minutos:20 };
+        cfg = {
+          convocatoria_nombre: match.nombre,
+          convocatoria_activa: true,
+          fecha_inicio: match.fecha_inicio,
+          num_preguntas: nc.num_preguntas,
+          tiempo_minutos: nc.tiempo_minutos,
+          permite_recuperacion: match.permite_recuperacion
+        };
+        appState.nivelActivo = match.nivel;
+      }
+    } catch(e){ console.error('Error revisando convocatorias de nivel:', e); }
+
+    if(!cfg){
+      const cfgs = await supaFetch('examen_config?id=eq.1&select=*');
+      cfg = cfgs && cfgs[0] ? cfgs[0] : { num_preguntas:40, tiempo_minutos:25, convocatoria_activa:false, convocatoria_nombre:'Convocatoria 1', permite_recuperacion:false };
+    }
     appState.config = cfg;
 
     // Sin convocatoria activa
@@ -919,6 +1002,7 @@ function closeSession(){
   appState.practiceMode = false;
   appState.student = null;
   appState.resetId = null;
+  appState.nivelActivo = null;
   const input = document.getElementById('loginEmail');
   if(input){ input.value=''; input.placeholder='tu@email.com'; }
   showScreen('s-login');
@@ -950,7 +1034,9 @@ function startExam(){
   const isPractice = !!appState.practiceMode;
   const numPreguntas = isPractice ? (cfg.practica_preguntas || 8) : cfg.num_preguntas;
   const tiempoMin = isPractice ? (cfg.practica_tiempo_minutos || 1) : cfg.tiempo_minutos;
-  const pool = buildExamPool(numPreguntas);
+  const pool = (!isPractice && appState.nivelActivo)
+    ? buildExamPoolPorNivel(numPreguntas, appState.nivelActivo)
+    : buildExamPool(numPreguntas);
   appState.exam = { questions:pool, current:0, answers:new Array(pool.length).fill(null), startTime:Date.now(), timer:null, timeLeft:tiempoMin*60, examenId:null, finished:false, isPractice };
 
   // Si el estudiante entró con un reintento individual, márcalo como usado ahora
@@ -1161,8 +1247,80 @@ function adminTab(tab, btn){
   if(tab==='config') loadAdminConfig();
   if(tab==='resultados') loadResultados();
   if(tab==='convocar') loadConvocar();
+  if(tab==='cierre') loadCierre();
   if(tab==='accesos') loadAccesos();
   if(tab==='banco') loadBanco();
+}
+
+// ═══════════════════════════════════════════════════
+// ADMIN — CIERRE DE MÓDULO (examen_convocatorias_nivel)
+// ═══════════════════════════════════════════════════
+let cierreStudents = [];
+function actualizarCierreNombre(){
+  const n = document.getElementById('cierreNivel').value;
+  const d = new Date();
+  document.getElementById('cierreNombre').value = `Cierre Módulo ${n} — ${d.getDate()} ${['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'][d.getMonth()]} ${d.getFullYear()}`;
+}
+async function loadCierre(){
+  const sel = convocarSelected.size;
+  document.getElementById('cierreSeleccion').innerHTML = sel
+    ? `👥 ${sel} estudiante${sel>1?'s':''} seleccionada${sel>1?'s':''} en Convocar`
+    : '<span style="color:var(--danger)">⚠️ Aún no seleccionaste estudiantes en Convocar.</span>';
+  // Sugerir nivel según el módulo más común entre las seleccionadas
+  try {
+    if(!convocarStudents.length){
+      convocarStudents = await supaFetch('students?select=id,nombre,telefono,email,estado,promocion,modulo,inicio&estado=neq.retirada&order=nombre') || [];
+    }
+    const cuenta = {};
+    convocarStudents.filter(s => convocarSelected.has(s.id)).forEach(s => {
+      const m = (s.modulo||'').match(/Modulo (\d)/); if(m) cuenta[m[1]] = (cuenta[m[1]]||0)+1;
+    });
+    const top = Object.keys(cuenta).sort((a,b) => cuenta[b]-cuenta[a])[0];
+    if(top) document.getElementById('cierreNivel').value = top;
+  } catch(e){}
+  actualizarCierreNombre();
+  renderCierreLista();
+}
+async function renderCierreLista(){
+  const el = document.getElementById('cierreLista');
+  try {
+    const rows = await supaFetch('examen_convocatorias_nivel?select=*&order=created_at.desc') || [];
+    if(!rows.length){ el.innerHTML = '<div class="empty-state">Aún no hay convocatorias de módulo.</div>'; return; }
+    el.innerHTML = rows.map(r => {
+      let n = 0; try { n = JSON.parse(r.estudiantes_ids||'[]').length; } catch(e){}
+      return `<div style="padding:12px 0;border-bottom:1px solid var(--border);">
+        <div style="font-size:14px;font-weight:700;">${r.nombre}</div>
+        <div style="font-size:11px;color:var(--muted);margin:3px 0 8px;">${NIVELES_NOMBRES[r.nivel]} · ${n} estudiantes${r.fecha_inicio?' · '+r.fecha_inicio.slice(0,16).replace('T',' '):''}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-secondary" style="font-size:12px;margin-top:0;width:auto;" onclick="toggleCierre('${r.id}',${!r.activa})">${r.activa?'✅ Activa (tocar para cerrar)':'❌ Cerrada (tocar para activar)'}</button>
+          <button class="btn-secondary" style="font-size:12px;margin-top:0;width:auto;" onclick="eliminarCierre('${r.id}')">🗑️ Eliminar</button>
+        </div></div>`;
+    }).join('');
+  } catch(e){ el.innerHTML = '<div class="empty-state">Error cargando convocatorias.</div>'; }
+}
+async function crearConvocatoriaNivel(){
+  if(!convocarSelected.size){ showToast('Primero selecciona estudiantes en Convocar','error'); return; }
+  const nombre = document.getElementById('cierreNombre').value.trim();
+  if(!nombre){ showToast('Falta el nombre','error'); return; }
+  const f = document.getElementById('cierreFecha').value;
+  try {
+    await supaFetch('examen_convocatorias_nivel','POST',{
+      nombre, nivel: parseInt(document.getElementById('cierreNivel').value),
+      estudiantes_ids: JSON.stringify([...convocarSelected]),
+      fecha_inicio: f ? f+':00' : null, activa: true
+    });
+    showToast('Convocatoria creada ✓');
+    renderCierreLista();
+  } catch(e){ showToast('Error al crear','error'); console.error(e); }
+}
+async function toggleCierre(id, activa){
+  try { await supaFetch(`examen_convocatorias_nivel?id=eq.${id}`,'PATCH',{activa}); renderCierreLista(); }
+  catch(e){ showToast('Error','error'); }
+}
+async function eliminarCierre(id){
+  if(!confirm('¿Eliminar esta convocatoria? Las notas ya rendidas se conservan.')) return;
+  try { await supaFetch(`examen_convocatorias_nivel?id=eq.${id}`,'DELETE'); renderCierreLista(); }
+  catch(e){ showToast('Error','error'); }
 }
 
 // ═══════════════════════════════════════════════════
