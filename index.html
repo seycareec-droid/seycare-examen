@@ -437,6 +437,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <button class="admin-tab active" onclick="adminTab('resultados',this)">📊 Resultados</button>
       <button class="admin-tab" onclick="adminTab('convocar',this)">📲 Convocar</button>
       <button class="admin-tab" onclick="adminTab('cierre',this)">🎯 Cierre de Módulo</button>
+      <button class="admin-tab" onclick="adminTab('expo',this)">🎤 Exposición</button>
       <button class="admin-tab" onclick="adminTab('accesos',this)">🕐 Accesos</button>
       <button class="admin-tab" onclick="adminTab('banco',this)">🗂️ Banco</button>
       <button class="admin-tab" onclick="adminTab('config',this)">⚙️ Config</button>
@@ -537,6 +538,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="config-title">📋 Convocatorias de módulo</div>
         <div id="cierreLista"><div class="empty-state"><span class="spinner"></span> Cargando...</div></div>
       </div>
+    </div>
+
+    <!-- EXPOSICIÓN: SORTEO DE PREGUNTAS -->
+    <div class="admin-section" id="atab-expo">
+      <div class="config-card">
+        <div class="config-title">🎤 Sorteo de preguntas — Exposición Final</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:12px;">
+          Elige la promoción, pasa el dispositivo a la estudiante y que toque <b>Sortear</b>. Salen 4 preguntas del banco (de 4 módulos distintos) y quedan guardadas para calificar en Academia.
+        </div>
+        <select id="expoPromo" class="config-input" style="width:100%;" onchange="renderExpo()"></select>
+        <div id="expoResumen" style="font-size:12px;color:var(--muted);margin:10px 0;"></div>
+        <div id="expoLista"><div class="empty-state"><span class="spinner"></span> Cargando...</div></div>
+      </div>
+      <div id="expoOverlay" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(15,23,42,.97);overflow:auto;padding:24px;"></div>
     </div>
 
     <!-- BANCO DE PREGUNTAS -->
@@ -1249,6 +1264,7 @@ function adminTab(tab, btn){
   if(tab==='resultados') loadResultados();
   if(tab==='convocar') loadConvocar();
   if(tab==='cierre') loadCierre();
+  if(tab==='expo') loadExpo();
   if(tab==='accesos') loadAccesos();
   if(tab==='banco') loadBanco();
 }
@@ -1324,6 +1340,84 @@ async function eliminarCierre(id){
   if(!confirm('¿Eliminar esta convocatoria? Las notas ya rendidas se conservan.')) return;
   try { await supaFetch(`examen_convocatorias_nivel?id=eq.${id}`,'DELETE'); renderCierreLista(); }
   catch(e){ showToast('Error','error'); }
+}
+
+// ═══════════════════════════════════════════════════
+// ADMIN — SORTEO DE PREGUNTAS DE EXPOSICIÓN (exposicion_sorteos)
+// ═══════════════════════════════════════════════════
+let expoStudents = [], expoSorteos = {};
+async function loadExpo(){
+  try {
+    const [sts, sor] = await Promise.all([
+      supaFetch('students?select=id,nombre,estado,promocion&estado=in.(en_curso,egresada,graduada)&promocion=not.is.null&order=nombre'),
+      supaFetch('exposicion_sorteos?select=*')
+    ]);
+    expoStudents = sts || [];
+    expoSorteos = {}; (sor||[]).forEach(r => expoSorteos[r.student_id] = r);
+    const sel = document.getElementById('expoPromo');
+    const actual = sel.value;
+    const promos = Array.from(new Set(expoStudents.map(x => x.promocion))).sort((a,b) => b.localeCompare(a,'es'));
+    sel.innerHTML = promos.map(p => `<option value="${p.replace(/"/g,'&quot;')}">${p}</option>`).join('');
+    if(actual && promos.includes(actual)) sel.value = actual;
+    renderExpo();
+  } catch(e){ document.getElementById('expoLista').innerHTML = '<div class="empty-state">Error cargando datos.</div>'; console.error(e); }
+}
+function renderExpo(){
+  const promo = document.getElementById('expoPromo').value;
+  const lista = expoStudents.filter(x => x.promocion === promo);
+  const hechas = lista.filter(x => expoSorteos[x.id]).length;
+  document.getElementById('expoResumen').textContent = `${hechas} de ${lista.length} estudiantes con preguntas sorteadas`;
+  document.getElementById('expoLista').innerHTML = lista.map(x => {
+    const ya = expoSorteos[x.id];
+    return `<div style="display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+      <div style="flex:1;min-width:160px;"><div style="font-size:14px;font-weight:700;">${x.nombre}</div>
+      <div style="font-size:11px;color:var(--muted);">${ya?'✅ Sorteada':'⏳ Pendiente'}</div></div>
+      ${ya
+        ? `<button class="btn-secondary" style="width:auto;margin-top:0;font-size:12px;" onclick="verExpo('${x.id}')">👁 Ver preguntas</button>
+           <button class="btn-secondary" style="width:auto;margin-top:0;font-size:12px;" onclick="sortearExpo('${x.id}',true)">🔁 Volver a sortear</button>`
+        : `<button class="btn-primary" style="width:auto;margin-top:0;padding:10px 18px;" onclick="sortearExpo('${x.id}',false)">🎲 Sortear</button>`}
+    </div>`;
+  }).join('') || '<div class="empty-state">No hay estudiantes en esta promoción.</div>';
+}
+function shuffleArr(a){ a = a.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function elegirPreguntasExpo(promo){
+  // Preguntas ya usadas en esta promoción (para no repetir entre compañeras mientras haya alternativas)
+  const usadas = new Set();
+  Object.values(expoSorteos).filter(r => r.promocion === promo).forEach(r => (r.preguntas||[]).forEach(q => usadas.add(q.mod+':'+q.idx)));
+  // Solo preguntas sin imagen (la exposición es oral y en Academia se guarda solo el texto)
+  const porMod = MODULES.map(m => ({ m, qs: m.questions.map((q,i) => ({q,i})).filter(o => !o.q.img) })).filter(o => o.qs.length);
+  const conLibres = shuffleArr(porMod.filter(o => o.qs.some(x => !usadas.has(o.m.id+':'+x.i))));
+  const resto = shuffleArr(porMod.filter(o => !conLibres.includes(o)));
+  const mods = [...conLibres, ...resto].slice(0,4);
+  return mods.map(o => {
+    const libres = o.qs.filter(x => !usadas.has(o.m.id+':'+x.i));
+    const x = shuffleArr(libres.length ? libres : o.qs)[0];
+    return { mod:o.m.id, modName:o.m.name, idx:x.i, q:x.q.q, correcta:x.q.opts[x.q.ans], exp:x.q.exp||'' };
+  });
+}
+async function sortearExpo(id, reintento){
+  const st = expoStudents.find(x => x.id === id); if(!st) return;
+  if(reintento && !confirm(`¿Volver a sortear para ${st.nombre}? Se reemplazan sus preguntas actuales.`)) return;
+  const preguntas = elegirPreguntasExpo(st.promocion);
+  try {
+    if(expoSorteos[id]) await supaFetch(`exposicion_sorteos?student_id=eq.${encodeURIComponent(id)}`,'PATCH',{ preguntas, created_at:new Date().toISOString() });
+    else await supaFetch('exposicion_sorteos','POST',{ student_id:id, nombre:st.nombre, promocion:st.promocion, preguntas });
+    expoSorteos[id] = { student_id:id, nombre:st.nombre, promocion:st.promocion, preguntas };
+    renderExpo(); verExpo(id);
+  } catch(e){ showToast('Error al guardar el sorteo','error'); console.error(e); }
+}
+function verExpo(id){
+  const r = expoSorteos[id]; if(!r) return;
+  const ov = document.getElementById('expoOverlay');
+  ov.innerHTML = `<div style="max-width:720px;margin:0 auto;color:#fff;">
+    <div style="font-size:14px;color:#94a3b8;margin-bottom:4px;">Exposición Final</div>
+    <div style="font-size:26px;font-weight:800;margin-bottom:18px;">${r.nombre}</div>
+    ${(r.preguntas||[]).map((p,i) => `<div style="background:#1e293b;border-radius:14px;padding:16px 18px;margin-bottom:12px;">
+      <div style="font-size:12px;color:#06b6d4;font-weight:700;margin-bottom:6px;">Pregunta ${i+1} · ${p.modName}</div>
+      <div style="font-size:19px;line-height:1.5;">${p.q}</div></div>`).join('')}
+    <button class="btn-primary" style="margin-top:8px;" onclick="document.getElementById('expoOverlay').style.display='none'">Cerrar</button>
+  </div>`;
+  ov.style.display = 'block';
 }
 
 // ═══════════════════════════════════════════════════
