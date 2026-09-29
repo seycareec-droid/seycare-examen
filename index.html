@@ -1754,7 +1754,7 @@ function renderConvocar(){
       `\n\n¡Mucho éxito! 🌟`
     );
     html += `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);">
-      <input type="checkbox" ${sel?'checked':''} onchange="toggleConvocar(${s.id},this.checked)" style="width:18px;height:18px;cursor:pointer;accent-color:var(--primary);">
+      <input type="checkbox" ${sel?'checked':''} onchange="toggleConvocar('${s.id}',this.checked)" style="width:18px;height:18px;cursor:pointer;accent-color:var(--primary);">
       <div style="flex:1;">
         <div style="font-size:14px;font-weight:700;">${s.nombre}</div>
         <div style="font-size:11px;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;">
