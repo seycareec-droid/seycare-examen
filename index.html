@@ -332,6 +332,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
+<!-- ═══ PRÁCTICA DE INGRESO (sin preguntas) ═══ -->
+<div class="screen" id="s-practica-ok">
+  <div class="header">
+    <div class="header-logo">💅</div>
+    <div><div class="header-title">Seycare Academy</div><div class="header-sub">🎯 Práctica de ingreso</div></div>
+  </div>
+  <div class="waiting-wrap">
+    <div class="waiting-icon">✅</div>
+    <div class="waiting-title">¡Listo, <span id="practicaNombre"></span>!</div>
+    <div class="waiting-desc">Así se ingresa al examen: escribes tu correo, pulsas «Ingresar» y llegas a la pantalla de instrucciones. El día del examen, desde ahí podrás comenzar.<br/><br/>Esta práctica es solo para ensayar el ingreso: no incluye preguntas y no se registra nota. Para estudiar, usa tus herramientas de estudio.</div>
+    <br/>
+    <button class="btn-secondary" onclick="closeSession()">← Salir</button>
+  </div>
+</div>
+
 <!-- ═══ INFO EXAMEN ═══ -->
 <div class="screen" id="s-info">
   <div class="header">
@@ -847,9 +862,9 @@ async function logAcceso(email, nombre, convocatoria, resultado){
     const now = new Date();
     const p = n => String(n).padStart(2,'0');
     const horaDispositivo = `${now.getFullYear()}-${p(now.getMonth()+1)}-${p(now.getDate())} ${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`;
-    await supaFetch('examen_accesos','POST', {
-      estudiante_email: email, estudiante_nombre: nombre, convocatoria: convocatoria||null,
-      resultado, hora_dispositivo: horaDispositivo
+    await supaRpc('examen_registrar_acceso', {
+      p_email: email, p_nombre: nombre, p_convocatoria: convocatoria||null,
+      p_resultado: resultado, p_hora_dispositivo: horaDispositivo
     });
   } catch(e){ console.error('No se pudo registrar el acceso:', e); }
 }
@@ -884,31 +899,27 @@ async function doLogin(){
     // Convocatorias de cierre de nivel (aditivo): si esta estudiante está convocada a una
     // convocatoria de nivel activa, esa manda; si no hay ninguna, sigue el flujo de siempre
     // (examen_config global, examen final). No afecta a nadie que no esté en una de estas listas.
+    // Una sola llamada: config global, convocatoria de nivel (si le toca), su intento anterior y su reset.
+    const ctx = await supaRpc('examen_contexto_alumna', {p_student_id: String(appState.student.id), p_email: email});
+    if(!ctx){
+      showLoginError('Email no encontrado. Verifica que estés registrada en la academia.');
+      btn.disabled=false; btn.textContent='Ingresar →'; return;
+    }
     let cfg = null;
-    try {
-      const convNivel = await supaFetch('examen_convocatorias_nivel?activa=eq.true&select=*&order=created_at.desc');
-      const match = (convNivel || []).find(c => {
-        try { return JSON.parse(c.estudiantes_ids || '[]').includes(appState.student.id); }
-        catch(e){ return false; }
-      });
-      if(match){
-        const nivelCfgs = await supaFetch(`examen_niveles_config?nivel=eq.${match.nivel}&select=*`);
-        const nc = nivelCfgs && nivelCfgs[0] ? nivelCfgs[0] : { num_preguntas:20, tiempo_minutos:20 };
-        cfg = {
-          convocatoria_nombre: match.nombre,
-          convocatoria_activa: true,
-          fecha_inicio: match.fecha_inicio,
-          num_preguntas: nc.num_preguntas,
-          tiempo_minutos: nc.tiempo_minutos,
-          permite_recuperacion: match.permite_recuperacion
-        };
-        appState.nivelActivo = match.nivel;
-      }
-    } catch(e){ console.error('Error revisando convocatorias de nivel:', e); }
-
-    if(!cfg){
-      const cfgs = await supaFetch('examen_config?id=eq.1&select=*');
-      cfg = cfgs && cfgs[0] ? cfgs[0] : { num_preguntas:40, tiempo_minutos:25, convocatoria_activa:false, convocatoria_nombre:'Convocatoria 1', permite_recuperacion:false };
+    if(ctx.convocatoria){
+      // Convocatoria de cierre de nivel: esa manda sobre la config global.
+      const nc = ctx.nivel_config || { num_preguntas:20, tiempo_minutos:20 };
+      cfg = {
+        convocatoria_nombre: ctx.convocatoria.nombre,
+        convocatoria_activa: true,
+        fecha_inicio: ctx.convocatoria.fecha_inicio,
+        num_preguntas: nc.num_preguntas,
+        tiempo_minutos: nc.tiempo_minutos,
+        permite_recuperacion: ctx.convocatoria.permite_recuperacion
+      };
+      appState.nivelActivo = ctx.convocatoria.nivel;
+    } else {
+      cfg = ctx.config && Object.keys(ctx.config).length ? ctx.config : { num_preguntas:40, tiempo_minutos:25, convocatoria_activa:false, convocatoria_nombre:'Convocatoria 1', permite_recuperacion:false };
     }
     appState.config = cfg;
 
@@ -933,12 +944,11 @@ async function doLogin(){
     }
 
     // Verificar si ya rindió
-    const prevExams = await supaFetch(`examenes?select=id,nota&estudiante_email=eq.${encodeURIComponent(email)}&convocatoria=eq.${encodeURIComponent(cfg.convocatoria_nombre)}&order=created_at.desc&limit=1`);
-    if(prevExams && prevExams.length > 0 && !cfg.permite_recuperacion){
+    const prevExams = ctx.intento_anterior ? [ctx.intento_anterior] : [];
+    if(prevExams.length > 0 && !cfg.permite_recuperacion){
       // ¿Tiene un reintento individual habilitado por la instructora?
-      const resets = await supaFetch(`examen_resets?select=id&estudiante_email=eq.${encodeURIComponent(email)}&convocatoria=eq.${encodeURIComponent(cfg.convocatoria_nombre)}&usado=eq.false&limit=1`);
-      if(resets && resets.length > 0){
-        appState.resetId = resets[0].id;
+      if(ctx.reset_id){
+        appState.resetId = ctx.reset_id;
       } else {
         logAcceso(email, appState.student.nombre, cfg.convocatoria_nombre, 'ya_rindio_sin_reintento');
         document.getElementById('yaRindioNota').textContent = 'Tu nota: '+parseFloat(prevExams[0].nota).toFixed(2)+' / 10';
@@ -1060,8 +1070,7 @@ function closeSession(){
 
 async function doPracticeLogin(email, btn){
   try {
-    const cfgs = await supaFetch('examen_config?id=eq.1&select=*');
-    const cfg = cfgs && cfgs[0] ? cfgs[0] : {};
+    const cfg = (await supaRpc('examen_config_publica', {})) || {};
     if(cfg.practica_habilitada === false){
       showLoginError('El modo práctica no está disponible en este momento.');
       appState.practiceMode = false;
@@ -1070,16 +1079,15 @@ async function doPracticeLogin(email, btn){
     // No se consulta la tabla students: cualquier email "pasa" en modo práctica.
     appState.student = { id:null, email:null, nombre: email.split('@')[0] || 'Estudiante en práctica' };
     appState.config = cfg;
-    document.getElementById('infoNombre').textContent = appState.student.nombre;
-    document.getElementById('infoConvNombre').textContent = '🎯 Modo práctica — no se registra nota';
-    document.getElementById('infoPreguntas').textContent = cfg.practica_preguntas || 8;
-    document.getElementById('infoTiempo').textContent = cfg.practica_tiempo_minutos || 1;
-    showScreen('s-info');
+    // La práctica es solo para ensayar el ingreso: NO se cargan preguntas ni se inicia un examen.
+    document.getElementById('practicaNombre').textContent = appState.student.nombre;
+    showScreen('s-practica-ok');
   } catch(e){ showLoginError('Error de conexión. Intenta de nuevo.'); }
   btn.disabled=false; btn.textContent='Ingresar →';
 }
 
 function startExam(){
+  if(appState.practiceMode){ showScreen('s-practica-ok'); return; }
   const cfg = appState.config;
   const isPractice = !!appState.practiceMode;
   const numPreguntas = isPractice ? (cfg.practica_preguntas || 8) : cfg.num_preguntas;
@@ -1091,7 +1099,7 @@ function startExam(){
 
   // Si el estudiante entró con un reintento individual, márcalo como usado ahora
   if(appState.resetId){
-    supaFetch(`examen_resets?id=eq.${appState.resetId}`,'PATCH',{usado:true}).catch(()=>{});
+    supaRpc('examen_usar_reset', {p_reset_id: appState.resetId, p_email: appState.student.email}).catch(()=>{});
   }
 
   showScreen('s-exam');
@@ -1184,35 +1192,34 @@ async function finishExam(){
   // hasta 3 veces y, si de todas formas falla, se avisa claramente en pantalla
   // y se deja un registro con la nota calculada para poder recuperarla a mano.
   let examenId = null;
+  const respuestas = questions.map((q,i) => ({
+    pregunta:q.q, modulo:q.module,
+    respuesta_dada: answers[i]!==null ? answers[i] : -1,
+    respuesta_correcta:q.ans, correcta:answers[i]===q.ans,
+    opciones:q.opts
+  }));
   for(let intento=1; intento<=3 && !examenId; intento++){
     try {
-      const exRes = await supaFetch('examenes','POST',{
-        estudiante_email: appState.student.email,
-        estudiante_nombre: appState.student.nombre || appState.student.email,
-        estudiante_id: String(appState.student.id),
-        nota, correctas:correct, total_preguntas:total,
-        tiempo_usado:elapsed,
-        convocatoria: appState.config.convocatoria_nombre,
-        estado:'pendiente', enviada_academia:false
+      const id = await supaRpc('examen_guardar', {
+        p_student_id: String(appState.student.id),
+        p_email: appState.student.email,
+        p_nota: nota, p_correctas: correct, p_total: total, p_tiempo: elapsed,
+        p_convocatoria: appState.config.convocatoria_nombre,
+        p_respuestas: respuestas
       });
-      examenId = exRes && exRes[0] ? exRes[0].id : null;
+      examenId = id || 'guardado';
     } catch(e){
+      const msg = String(e && e.message || e);
       console.error(`Error guardando examen (intento ${intento}/3):`, e);
+      // Si un reintento responde "intento_no_permitido", el primer envío sí quedó guardado (se perdió solo la respuesta).
+      if(intento>1 && msg.indexOf('intento_no_permitido')>=0){ examenId = 'guardado'; break; }
+      if(/alumna_no_valida|datos_invalidos|convocatoria_no_valida|intento_no_permitido/.test(msg)) break;
       if(intento < 3) await new Promise(r => setTimeout(r, 1200*intento));
     }
   }
   appState.exam.examenId = examenId;
 
   if(examenId){
-    try {
-      const respuestas = questions.map((q,i) => ({
-        examen_id:examenId, pregunta:q.q, modulo:q.module,
-        respuesta_dada: answers[i]!==null ? answers[i] : -1,
-        respuesta_correcta:q.ans, correcta:answers[i]===q.ans,
-        opciones:q.opts, imagen: q.img || null
-      }));
-      await supaFetch('examenes_respuestas','POST', respuestas);
-    } catch(e){ console.error('Error guardando respuestas detalladas:', e); }
     logAcceso(appState.student.email, appState.student.nombre, appState.config.convocatoria_nombre, `examen_guardado (nota:${nota})`);
   } else {
     logAcceso(appState.student.email, appState.student.nombre, appState.config.convocatoria_nombre, `ERROR_NO_GUARDADO (nota_calculada:${nota}, correctas:${correct}/${total}, tiempo:${elapsed}s)`);
