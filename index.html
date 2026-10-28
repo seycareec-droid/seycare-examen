@@ -490,9 +490,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           <button class="btn-secondary" style="font-size:12px;margin-top:0;" onclick="selAllConvocar(false)">Deseleccionar</button>
           <button onclick="copiarMensajeGrupal()" style="background:#25D366;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;">💬 Copiar mensaje grupal</button>
         </div>
+        <div style="margin-bottom:10px;">
+          <input id="convocarBuscar" class="config-input" type="search" placeholder="🔎 Buscar por nombre, correo o teléfono" autocomplete="off" style="width:100%;" oninput="onConvocarFilterChange()">
+        </div>
         <div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
           <select id="convocarEstadoFilter" class="config-input" style="width:auto;min-width:150px;" onchange="onConvocarFilterChange()">
             <option value="">👥 Todos los estados</option>
+          </select>
+          <select id="convocarHorarioFilter" class="config-input" style="width:auto;min-width:170px;" onchange="onConvocarFilterChange()">
+            <option value="">🕒 Todos los horarios</option>
           </select>
           <select id="convocarModuloFilter" class="config-input" style="width:auto;min-width:150px;" onchange="onConvocarFilterChange()">
             <option value="">📘 Todos los módulos</option>
@@ -512,6 +518,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         </div>
         <div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
           <button class="btn-secondary" style="font-size:11px;padding:6px 12px;margin-top:0;width:auto;" onclick="onConvocarQuickFilter('en_curso')">🟢 Solo en curso</button>
+          <button class="btn-secondary" style="font-size:11px;padding:6px 12px;margin-top:0;width:auto;" onclick="onConvocarQuickFilter('egresada')">🎓 Solo egresadas</button>
           <button class="btn-secondary" style="font-size:11px;padding:6px 12px;margin-top:0;width:auto;" onclick="onConvocarQuickFilter('graduada')">🎓 Solo graduadas</button>
           <button class="btn-secondary" style="font-size:11px;padding:6px 12px;margin-top:0;width:auto;" onclick="onConvocarQuickFilter('')">✖️ Quitar filtro de estado</button>
         </div>
@@ -687,11 +694,11 @@ let appState = {
 let countdownTimer = null;
 let cfgState = { activa: false, recup: false, practicaActiva: true };
 let convocarStudents = [], convocarSelected = new Set();
-let convocarFilters = { promocion:'', contacto:'todas', estado:'', modulo:'', inicio:'' };
+let convocarFilters = { promocion:'', contacto:'todas', estado:'en_curso', modulo:'', inicio:'', horario:'', q:'' };
 
 // Orden natural sugerido para módulos conocidos; cualquier otro valor se agrega al final, ordenado alfabéticamente.
 const MODULO_ORDEN = ['Modulo 1','Modulo 2','Modulo 3','Vacacional','Practico Final'];
-const ESTADO_LABELS = { en_curso:'🟢 En curso', graduada:'🎓 Graduada', finalizada:'✅ Finalizada', reprobada:'🔴 Reprobada', retirada:'⚪ Retirada' };
+const ESTADO_LABELS = { en_curso:'🟢 En curso', egresada:'🎓 Egresada', graduada:'🎓 Graduada', finalizada:'✅ Finalizada', reprobada:'🔴 Reprobada', retirada:'⚪ Retirada' };
 function fmtFechaCorta(iso){
   if(!iso) return '';
   const [y,m,d] = iso.split('-');
@@ -1329,7 +1336,7 @@ async function loadCierre(){
   // Sugerir nivel según el módulo más común entre las seleccionadas
   try {
     if(!convocarStudents.length){
-      convocarStudents = await supaFetch('students?select=id,nombre,telefono,email,estado,promocion,modulo,inicio&estado=neq.retirada&order=nombre') || [];
+      convocarStudents = ((await supaFetch('students?select=id,nombre,telefono,email,estado,promocion,modulo,inicio,tipo_curso,horario&estado=neq.retirada&order=nombre')) || []).filter(s => !/^vacacional/i.test(String(s.modulo||'').trim()) && !/^vacacional/i.test(String(s.tipo_curso||'').trim()));
     }
     const cuenta = {};
     convocarStudents.filter(s => convocarSelected.has(s.id)).forEach(s => {
@@ -1678,10 +1685,12 @@ async function loadConvocar(){
     const [data, promos] = await Promise.all([
       // Se excluyen solo las retiradas (no tiene sentido convocarlas a nada); todo lo demás
       // (en_curso, graduada, finalizada, reprobada) se filtra desde los selects de la UI.
-      supaFetch('students?select=id,nombre,telefono,email,estado,promocion,modulo,inicio&estado=neq.retirada&order=nombre'),
+      supaFetch('students?select=id,nombre,telefono,email,estado,promocion,modulo,inicio,tipo_curso,horario&estado=neq.retirada&order=nombre'),
       supaFetch('promociones?select=nombre&order=nombre').catch(()=>[])
     ]);
-    convocarStudents = data || [];
+    // El curso vacacional no entra a evaluaciones: se excluye por módulo o tipo de curso.
+    const esVacacional = s => /^vacacional/i.test(String(s.modulo||'').trim()) || /^vacacional/i.test(String(s.tipo_curso||'').trim());
+    convocarStudents = (data || []).filter(s => !esVacacional(s));
     // No se preselecciona a nadie: con el universo ampliado (ya no solo graduadas) conviene
     // que la instructora filtre primero y luego elija explícitamente el grupo a convocar.
     convocarSelected = new Set();
@@ -1729,6 +1738,16 @@ function renderConvocarFilterOptions(promos){
     selM.value = convocarFilters.modulo;
   }
 
+  const selH = document.getElementById('convocarHorarioFilter');
+  if(selH){
+    const horarios = Array.from(new Set(convocarStudents.map(s => s.horario).filter(Boolean))).sort((a,b) => a.localeCompare(b,'es'));
+    selH.innerHTML = '<option value="">🕒 Todos los horarios</option>' +
+      horarios.map(h => `<option value="${h.replace(/"/g,'&quot;')}">${h}</option>`).join('');
+    selH.value = convocarFilters.horario;
+  }
+  const inpQ = document.getElementById('convocarBuscar');
+  if(inpQ) inpQ.value = convocarFilters.q;
+
   // Fecha de inicio: fechas distintas presentes, más recientes primero (útil para ubicar un grupo/cohorte).
   const selI = document.getElementById('convocarInicioFilter');
   if(selI){
@@ -1745,6 +1764,8 @@ function onConvocarFilterChange(){
   convocarFilters.estado = document.getElementById('convocarEstadoFilter').value;
   convocarFilters.modulo = document.getElementById('convocarModuloFilter').value;
   convocarFilters.inicio = document.getElementById('convocarInicioFilter').value;
+  const _h = document.getElementById('convocarHorarioFilter'); if(_h) convocarFilters.horario = _h.value;
+  const _q = document.getElementById('convocarBuscar'); if(_q) convocarFilters.q = _q.value;
   renderConvocar();
 }
 
@@ -1763,6 +1784,12 @@ function getConvocarFiltered(){
     if(convocarFilters.estado && (s.estado||'') !== convocarFilters.estado) return false;
     if(convocarFilters.modulo && (s.modulo||'') !== convocarFilters.modulo) return false;
     if(convocarFilters.inicio && (s.inicio||'') !== convocarFilters.inicio) return false;
+    if(convocarFilters.horario && (s.horario||'') !== convocarFilters.horario) return false;
+    if(convocarFilters.q){
+      const norm = x => String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      const q = norm(convocarFilters.q).trim();
+      if(q && norm(s.nombre+' '+(s.email||'')+' '+(s.telefono||'')).indexOf(q) < 0) return false;
+    }
     const tieneTel = s.telefono && s.telefono.length >= 9;
     const tieneEmail = s.email && s.email.includes('@');
     if(convocarFilters.contacto === 'sin_email' && tieneEmail) return false;
