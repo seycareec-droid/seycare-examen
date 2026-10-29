@@ -661,7 +661,7 @@ const MODULES = [{"id": "bioseguridad", "name": "Bioseguridad", "icon": "🧤", 
 // CONFIGURACIÓN
 // ═══════════════════════════════════════════════════
 const SUPA_URL = 'https://yaxdcfrvcmkrwunpkpyj.supabase.co';
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlheGRjZnJ2Y21rcnd1bnBrcHlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1Mjk2MDEsImV4cCI6MjA5NTEwNTYwMX0.ZGO3b6WuoaBRGjjrRIgsVStlLc1Xr7nYfCyt4mEQDyo';
+const SUPA_KEY = 'sb_publishable_PIpW57mTJY6cxE2PHGLS9w_uPyFMESf';
 // Cliente de Supabase solo para el login del panel de administración (sesión por correo).
 // persistSession:false => la sesión vive solo en memoria; al recargar hay que volver a entrar.
 const SBA = window.supabase ? window.supabase.createClient(SUPA_URL, SUPA_KEY, {auth:{persistSession:false, autoRefreshToken:true}}) : null;
@@ -742,7 +742,7 @@ async function tokenAdmin(){
 async function supaRpc(fn, args){
   const r = await fetch(SUPA_URL + '/rest/v1/rpc/' + fn, {
     method:'POST',
-    headers:{ 'apikey': SUPA_KEY, 'Authorization': 'Bearer '+SUPA_KEY, 'Content-Type':'application/json' },
+    headers:{ 'apikey': SUPA_KEY, 'Content-Type':'application/json' },
     body: JSON.stringify(args||{})
   });
   if(!r.ok){ const e = await r.text(); throw new Error(e); }
@@ -753,7 +753,7 @@ async function supaFetch(path, method='GET', body=null){
   const tok = await tokenAdmin();
   const opts = {
     method,
-    headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer '+tok, 'Content-Type': 'application/json', 'Prefer': 'return=representation' }
+    headers: Object.assign({ 'apikey': SUPA_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=representation' }, tok && tok !== SUPA_KEY ? {'Authorization': 'Bearer '+tok} : {})
   };
   if(body) opts.body = JSON.stringify(body);
   const r = await fetch(SUPA_URL + '/rest/v1/' + path, opts);
